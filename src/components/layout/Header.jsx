@@ -1,15 +1,23 @@
-import { Link, useLocation } from 'react-router-dom';
-import { Leaf } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Leaf, LogOut } from 'lucide-react';
 
 export default function Header() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const isAdmin = localStorage.getItem('isAdmin') === 'true';
+
   const navItems = [
     { name: 'Trang chủ', path: '/' },
     { name: 'Đặt thùng', path: '/booking' },
     { name: 'Chuyến hàng', path: '/tracking' },
-    { name: 'Quản lý thùng', path: '/box-management' },
-    { name: 'Admin', path: '/admin' },
+    { name: 'Quản lý đơn', path: '/box-management' },
+    { name: 'Quản trị viên', path: '/admin' },
   ];
+
+  const handleLogout = () => {
+    localStorage.removeItem('isAdmin');
+    navigate('/');
+  };
 
   return (
     <header className="bg-white shadow-sm sticky top-0 z-50">
@@ -21,7 +29,7 @@ export default function Header() {
             </div>
             <span className="text-xl font-bold text-agro-dark">AgroCold</span>
           </Link>
-          <nav className="hidden md:flex space-x-8">
+          <nav className="hidden md:flex items-center space-x-8">
             {navItems.map((item) => (
               <Link
                 key={item.path}
@@ -35,6 +43,14 @@ export default function Header() {
                 {item.name}
               </Link>
             ))}
+            {isAdmin && (
+              <button 
+                onClick={handleLogout}
+                className="flex items-center gap-1 text-sm font-semibold text-red-500 hover:text-red-700 transition-colors"
+              >
+                <LogOut className="w-4 h-4" /> Đăng xuất
+              </button>
+            )}
           </nav>
         </div>
       </div>

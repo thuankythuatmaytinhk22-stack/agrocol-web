@@ -13,11 +13,9 @@ export default function AdminPage() {
   }, []);
 
   const fetchData = async () => {
-    // Lấy đơn hàng
     const { data: orderData } = await supabase.from('orders').select('*').order('created_at', { ascending: false });
     if (orderData) setOrders(orderData);
 
-    // Lấy thùng
     try {
       const boxData = await getAllBoxes();
       setBoxes(boxData);
@@ -37,7 +35,7 @@ export default function AdminPage() {
   const handleUpdateBoxStatus = async (boxCode, newStatus) => {
     try {
       await updateBoxStatus(boxCode, newStatus);
-      fetchData(); // Tải lại dữ liệu sau khi cập nhật
+      fetchData();
     } catch (err) {
       alert('Lỗi: ' + err.message);
     }
@@ -48,6 +46,7 @@ export default function AdminPage() {
     { value: 'packed', label: 'Đã đóng hàng', color: 'bg-blue-100 text-blue-700' },
     { value: 'shipping', label: 'Đang vận chuyển', color: 'bg-yellow-100 text-yellow-700' },
     { value: 'delivered', label: 'Đã giao', color: 'bg-green-100 text-green-700' },
+    { value: 'cancelled', label: 'Đã hủy', color: 'bg-red-100 text-red-700' },
   ];
 
   const boxStatusOptions = [
@@ -69,11 +68,12 @@ export default function AdminPage() {
             <Package className="w-6 h-6 text-agro-dark" />
             <h1 className="text-3xl font-bold text-agro-dark">Quản trị Đơn hàng</h1>
           </div>
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-            <table className="w-full text-left">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-x-auto">
+            <table className="w-full text-left min-w-[800px]">
               <thead className="bg-agro-dark text-white">
                 <tr>
                   <th className="px-6 py-4">Mã đơn</th>
+                  <th className="px-6 py-4">Khách hàng</th>
                   <th className="px-6 py-4">Nông sản</th>
                   <th className="px-6 py-4">Khối lượng</th>
                   <th className="px-6 py-4">Trạng thái</th>
@@ -82,10 +82,14 @@ export default function AdminPage() {
               </thead>
               <tbody>
                 {orders.length === 0 ? (
-                  <tr><td colSpan="5" className="text-center py-6 text-gray-400">Chưa có đơn hàng nào</td></tr>
+                  <tr><td colSpan="6" className="text-center py-6 text-gray-400">Chưa có đơn hàng nào</td></tr>
                 ) : orders.map((order) => (
                   <tr key={order.id} className="border-b border-gray-100 hover:bg-gray-50">
                     <td className="px-6 py-4 font-bold text-agro-dark">{order.order_code}</td>
+                    <td className="px-6 py-4">
+                      <p className="font-semibold">{order.customer_name || 'N/A'}</p>
+                      <p className="text-xs text-gray-500">{order.customer_phone || 'N/A'}</p>
+                    </td>
                     <td className="px-6 py-4">{order.product_type}</td>
                     <td className="px-6 py-4">{order.weight} kg ({order.boxes} thùng)</td>
                     <td className="px-6 py-4">
@@ -117,8 +121,8 @@ export default function AdminPage() {
             <Recycle className="w-6 h-6 text-agro-dark" />
             <h1 className="text-3xl font-bold text-agro-dark">Quản trị Thùng lạnh</h1>
           </div>
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-            <table className="w-full text-left">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-x-auto">
+            <table className="w-full text-left min-w-[800px]">
               <thead className="bg-agro-dark text-white">
                 <tr>
                   <th className="px-6 py-4">Mã thùng</th>

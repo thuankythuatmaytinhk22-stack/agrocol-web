@@ -4,6 +4,8 @@ import { CheckCircle } from 'lucide-react';
 
 export default function BookingPage() {
   const [formData, setFormData] = useState({
+    customer_name: '',
+    customer_phone: '',
     product_type: '',
     weight: '',
     send_date: '',
@@ -11,14 +13,21 @@ export default function BookingPage() {
     delivery_address: '',
   });
   const [boxes, setBoxes] = useState(0);
+  const [cost, setCost] = useState(0);
   const [isSuccess, setIsSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+    
+    // Tính toán số thùng và chi phí khi nhập khối lượng
     if (name === 'weight') {
-      setBoxes(Math.ceil(parseFloat(value || 0) / 250));
+      const weightValue = parseFloat(value || 0);
+      const calculatedBoxes = Math.ceil(weightValue / 250);
+      setBoxes(calculatedBoxes);
+      // Chi phí: 1.000.000đ cơ bản + 200.000đ mỗi thùng thêm
+      setCost(calculatedBoxes > 0 ? 1000000 + (calculatedBoxes - 1) * 200000 : 0);
     }
   };
 
@@ -28,8 +37,9 @@ export default function BookingPage() {
     try {
       await createOrder(formData);
       setIsSuccess(true);
-      setFormData({ product_type: '', weight: '', send_date: '', pickup_address: '', delivery_address: '' });
+      setFormData({ customer_name: '', customer_phone: '', product_type: '', weight: '', send_date: '', pickup_address: '', delivery_address: '' });
       setBoxes(0);
+      setCost(0);
       setTimeout(() => setIsSuccess(false), 5000);
     } catch (err) {
       alert('Lỗi: ' + err.message);
@@ -45,9 +55,20 @@ export default function BookingPage() {
         <h2 className="text-4xl font-extrabold text-agro-dark mb-8">Đặt thùng lạnh</h2>
 
         <div className="grid md:grid-cols-3 gap-8">
-          {/* Form */}
           <div className="md:col-span-2 bg-white rounded-2xl p-8 shadow-sm border border-gray-100">
             <form onSubmit={handleSubmit} className="grid md:grid-cols-2 gap-6">
+              
+              <div>
+                <label className="block text-sm font-semibold mb-2">Tên người đặt</label>
+                <input name="customer_name" value={formData.customer_name} onChange={handleChange} required
+                  className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-agro-dark outline-none" placeholder="VD: Nguyễn Văn A" />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold mb-2">Số điện thoại</label>
+                <input name="customer_phone" value={formData.customer_phone} onChange={handleChange} required
+                  className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-agro-dark outline-none" placeholder="VD: 0905xxxxxx" />
+              </div>
+
               <div>
                 <label className="block text-sm font-semibold mb-2">Loại nông sản</label>
                 <input name="product_type" value={formData.product_type} onChange={handleChange} required
@@ -95,11 +116,13 @@ export default function BookingPage() {
             )}
           </div>
 
-          {/* Summary */}
+          {/* SUMMARY - CHI PHÍ ĐỘNG */}
           <div className="space-y-6">
             <div className="bg-agro-dark text-white rounded-2xl p-6 shadow-md">
-              <p className="text-sm opacity-80 mb-1">Chi phí dự kiến: 1.000.000đ</p>
-              <h3 className="text-4xl font-extrabold text-agro-yellow">1.000.000đ</h3>
+              <p className="text-sm opacity-80 mb-1">Chi phí dự kiến</p>
+              <h3 className="text-4xl font-extrabold text-agro-yellow">
+                {cost.toLocaleString('vi-VN')}đ
+              </h3>
               <hr className="my-4 border-white/20" />
               <p className="text-sm opacity-80">Số thùng ước tính</p>
               <p className="text-2xl font-bold">{boxes > 0 ? `${boxes} thùng` : 'Chưa xác định'}</p>

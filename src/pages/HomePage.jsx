@@ -4,28 +4,36 @@ import { Truck, Recycle, QrCode, Thermometer } from 'lucide-react';
 export default function HomePage() {
   return (
     <div className="bg-agro-bg min-h-screen">
-      {/* Hero Section */}
-      <section className="max-w-7xl mx-auto px-4 py-12 md:py-20 grid md:grid-cols-2 gap-12 items-center">
-        <div>
-          <span className="bg-green-100 text-agro-dark text-xs font-bold px-4 py-2 rounded-full inline-block mb-4">
-            LOGISTICS XANH - GIỮ ĐỘ TƯƠI
-          </span>
-          <h1 className="text-4xl md:text-6xl font-extrabold text-agro-dark mb-6 tracking-tight">
-            AGROCOLD
-          </h1>
-          <p className="text-lg text-gray-600 mb-8 max-w-md">
-            Giải pháp vận chuyển nông sản giữ độ tươi trên suốt hành trình.
-          </p>
-          <Link to="/booking" className="inline-flex items-center gap-2 bg-agro-yellow hover:bg-yellow-500 text-agro-dark font-bold py-4 px-8 rounded-full transition-all shadow-lg">
-            <Truck className="w-5 h-5" />
-            ĐẶT THÙNG LẠNH
-            <span>→</span>
-          </Link>
-        </div>
-        <div className="relative flex justify-center items-center">
-          {/* Placeholder cho ảnh thùng lạnh */}
-          <div className="w-full h-80 bg-green-100 rounded-3xl flex items-center justify-center border-4 border-dashed border-agro-dark/20">
-            <p className="text-agro-dark font-semibold">[Ảnh thùng lạnh + sầu riêng]</p>
+      {/* Hero Section với ảnh nền */}
+      <section 
+        className="relative w-full min-h-[600px] flex items-center bg-cover bg-center"
+        style={{ backgroundImage: "url('/hero-bg.avif')" }}
+      >
+        <div className="absolute inset-0 bg-gradient-to-r from-agro-bg/90 via-agro-bg/70 to-transparent"></div>
+        
+        <div className="relative max-w-7xl mx-auto px-4 py-20 grid md:grid-cols-2 gap-12 items-center w-full">
+          <div>
+            <span className="bg-green-100 text-agro-dark text-xs font-bold px-4 py-2 rounded-full inline-block mb-4">
+              LOGISTICS XANH - GIỮ ĐỘ TƯƠI
+            </span>
+            <h1 className="text-4xl md:text-6xl font-extrabold text-agro-dark mb-6 tracking-tight">
+              AGROCOLD
+            </h1>
+            <p className="text-lg text-gray-600 mb-8 max-w-md">
+              Giải pháp vận chuyển nông sản giữ độ tươi trên suốt hành trình.
+            </p>
+            <Link to="/booking" className="inline-flex items-center gap-2 bg-agro-yellow hover:bg-yellow-500 text-agro-dark font-bold py-4 px-8 rounded-full transition-all shadow-lg">
+              <Truck className="w-5 h-5" />
+              ĐẶT THÙNG LẠNH
+              <span>→</span>
+            </Link>
+          </div>
+          <div className="relative flex justify-center items-center">
+            <img 
+              src="/fresh-box.avif" 
+              alt="Thùng lạnh AgroCold" 
+              className="w-full h-auto max-w-md drop-shadow-2xl rounded-3xl"
+            />
           </div>
         </div>
       </section>

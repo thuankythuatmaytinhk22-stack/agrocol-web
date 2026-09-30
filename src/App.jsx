@@ -6,6 +6,13 @@ import BookingPage from './pages/BookingPage';
 import TrackingPage from './pages/TrackingPage';
 import BoxManagementPage from './pages/BoxManagementPage';
 import AdminPage from './pages/AdminPage';
+import LoginPage from './pages/LoginPage';
+
+// Component bảo vệ Admin
+function ProtectedAdmin() {
+  const isAdmin = localStorage.getItem('isAdmin') === 'true';
+  return isAdmin ? <AdminPage /> : <LoginPage />;
+}
 
 function App() {
   return (
@@ -19,7 +26,8 @@ function App() {
             <Route path="/tracking" element={<TrackingPage />} />
             <Route path="/tracking/:orderCode" element={<TrackingPage />} />
             <Route path="/box-management" element={<BoxManagementPage />} />
-            <Route path="/admin" element={<AdminPage />} />
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/admin" element={<ProtectedAdmin />} />
           </Routes>
         </main>
         <Footer />

@@ -56,3 +56,24 @@ export const subscribeToOrder = (orderCode, callback) => {
     )
     .subscribe();
 };
+
+// Hàm lấy đơn hàng theo số điện thoại (cho User tra cứu)
+export const getOrdersByPhone = async (phone) => {
+  const { data, error } = await supabase
+    .from('orders')
+    .select('*')
+    .eq('customer_phone', phone)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data;
+};
+
+// Hàm hủy đơn hàng
+export const cancelOrder = async (orderId) => {
+  const { data, error } = await supabase
+    .from('orders')
+    .update({ status: 'cancelled' })
+    .eq('id', orderId);
+  if (error) throw error;
+  return data;
+};
