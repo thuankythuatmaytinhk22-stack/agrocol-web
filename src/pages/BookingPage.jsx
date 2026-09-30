@@ -26,8 +26,8 @@ export default function BookingPage() {
       const weightValue = parseFloat(value || 0);
       const calculatedBoxes = Math.ceil(weightValue / 250);
       setBoxes(calculatedBoxes);
-      // Chi phí: 1.000.000đ cơ bản + 200.000đ mỗi thùng thêm
-      setCost(calculatedBoxes > 0 ? 1000000 + (calculatedBoxes - 1) * 200000 : 0);
+      // Chi phí: 1.000.000đ mỗi thùng
+      setCost(calculatedBoxes * 1000000);
     }
   };
 
