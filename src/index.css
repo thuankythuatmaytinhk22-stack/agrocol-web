@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+@theme {
+  --color-agro-dark: #0F4C3A;
+  --color-agro-yellow: #F4C542;
+  --color-agro-bg: #FFF8E7;
+  --color-agro-green: #4CAF50;
+}
+
+/* Custom styles cho AgroCold */
+body {
+  background-color: #FFF8E7;
+  font-family: 'Inter', sans-serif;
+  color: #0F4C3A;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #FFF8E7;
+}
+::-webkit-scrollbar-thumb {
+  background: #0F4C3A;
+  border-radius: 4px;
+}
