@@ -14,6 +14,7 @@ export default function BookingPage() {
   });
   const [boxes, setBoxes] = useState(0);
   const [cost, setCost] = useState(0);
+  const [successBoxes, setSuccessBoxes] = useState(0);
   const [isSuccess, setIsSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -33,13 +34,17 @@ export default function BookingPage() {
     e.preventDefault();
     setLoading(true);
     try {
+      const currentBoxes = boxes;
       await createOrder(formData);
+      setSuccessBoxes(currentBoxes);
       setIsSuccess(true);
-      // Reset form sau khi đặt thành công
       setFormData({ customer_name: '', customer_phone: '', product_type: '', weight: '', send_date: '', pickup_address: '', delivery_address: '' });
       setBoxes(0);
       setCost(0);
-      setTimeout(() => setIsSuccess(false), 5000);
+      setTimeout(() => {
+        setIsSuccess(false);
+        setSuccessBoxes(0);
+      }, 5000);
     } catch (err) {
       alert('Lỗi: ' + err.message);
     } finally {
@@ -110,7 +115,7 @@ export default function BookingPage() {
             {isSuccess && (
               <div className="mt-4 bg-green-100 text-agro-dark p-4 rounded-xl flex items-center gap-3 font-semibold">
                 <CheckCircle className="w-6 h-6" />
-                <span>Đặt thùng thành công! Đã ước tính {boxes} thùng cho chuyến hàng.</span>
+                <span>Đặt thùng thành công! Đã ước tính {successBoxes} thùng cho chuyến hàng.</span>
               </div>
             )}
           </div>
