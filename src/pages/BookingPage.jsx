@@ -26,7 +26,7 @@ export default function BookingPage() {
       const weightValue = parseFloat(value || 0);
       const calculatedBoxes = Math.ceil(weightValue / 250);
       setBoxes(calculatedBoxes);
-      setCost(calculatedBoxes * 1000000);
+      setCost(calculatedBoxes * 250000);
     }
   };
 

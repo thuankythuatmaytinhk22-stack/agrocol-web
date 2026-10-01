@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getOrderByCode, subscribeToOrder } from '../services/orderService';
-import { Package, Truck, CheckCircle, MapPin, Thermometer } from 'lucide-react';
+import { Package, Truck, CheckCircle, MapPin, Thermometer, X, Eye } from 'lucide-react';
 
 export default function TrackingPage() {
   const { orderCode } = useParams();
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
   const [searchCode, setSearchCode] = useState(orderCode || '');
+  const [showDetail, setShowDetail] = useState(false);
 
   useEffect(() => {
     if (!orderCode) { setLoading(false); return; }
@@ -43,12 +44,12 @@ export default function TrackingPage() {
 
   if (!orderCode) {
     return (
-      <div className="bg-agro-bg min-h-screen py-20 flex flex-col items-center justify-center">
+      <div className="bg-agro-bg min-h-screen py-20 flex flex-col items-center justify-center font-sans">
         <h1 className="text-3xl font-bold text-agro-dark mb-6">Theo dõi chuyến hàng</h1>
         <div className="flex gap-4 max-w-md w-full px-4">
           <input value={searchCode} onChange={(e) => setSearchCode(e.target.value)}
             placeholder="Nhập mã chuyến hàng (VD: AC-2026-00125)"
-            className="flex-1 border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-agro-dark" />
+            className="flex-1 border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-agro-dark text-agro-dark font-medium" />
           <Link to={`/tracking/${searchCode}`} className="bg-agro-yellow text-agro-dark font-bold px-6 py-3 rounded-xl hover:bg-yellow-500">
             Tìm
           </Link>
@@ -57,33 +58,33 @@ export default function TrackingPage() {
     );
   }
 
-  if (!order) return <div className="text-center py-20">Không tìm thấy đơn hàng!</div>;
+  if (!order) return <div className="text-center py-20 font-sans">Không tìm thấy đơn hàng!</div>;
 
   return (
-    <div className="bg-agro-bg min-h-screen py-12">
+    <div className="bg-agro-bg min-h-screen py-12 font-sans">
       <div className="max-w-4xl mx-auto px-4">
         <div className="bg-white rounded-2xl p-8 shadow-sm border border-gray-100">
           <div className="flex justify-between items-start mb-8">
             <div>
-              <p className="text-sm text-gray-400 font-semibold">MÃ CHUYẾN HÀNG</p>
+              <p className="text-sm text-gray-400 font-semibold tracking-wide">MÃ CHUYẾN HÀNG</p>
               <h2 className="text-3xl font-extrabold text-agro-dark">{order.order_code}</h2>
               <p className="text-agro-dark font-semibold mt-1">{order.pickup_address} → {order.delivery_address}</p>
             </div>
             <span className="bg-green-100 text-agro-dark px-4 py-2 rounded-full text-sm font-bold">
-              {order.status === 'delivered' ? 'Đã giao' : order.status === 'shipping' ? 'Đang vận chuyển' : 'Đã đặt'}
+              {order.status === 'delivered' ? 'Đã giao' : order.status === 'shipping' ? 'Đang vận chuyển' : order.status === 'cancelled' ? 'Đã hủy' : 'Đã đặt'}
             </span>
           </div>
 
           {/* Timeline */}
           <div className="flex justify-between items-center mb-10 relative">
             <div className="absolute top-5 left-0 right-0 h-1 bg-gray-200 z-0"></div>
-            <div className="absolute top-5 left-0 h-1 bg-agro-dark z-0" style={{ width: `${(currentStepIndex / (steps.length - 1)) * 100}%` }}></div>
+            <div className="absolute top-5 left-0 h-1 bg-agro-dark z-0 transition-all duration-500" style={{ width: `${(currentStepIndex / (steps.length - 1)) * 100}%` }}></div>
             {steps.map((step, i) => {
               const Icon = step.icon;
               const isActive = i <= currentStepIndex;
               return (
                 <div key={step.key} className="flex flex-col items-center z-10">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isActive ? 'bg-agro-dark text-white' : 'bg-gray-200 text-gray-400'}`}>
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${isActive ? 'bg-agro-dark text-white' : 'bg-gray-200 text-gray-400'}`}>
                     <Icon className="w-5 h-5" />
                   </div>
                   <span className={`text-xs mt-2 font-semibold ${isActive ? 'text-agro-dark' : 'text-gray-400'}`}>{step.label}</span>
@@ -95,13 +96,20 @@ export default function TrackingPage() {
           <div className="grid md:grid-cols-2 gap-8">
             <div>
               <h3 className="font-bold text-agro-dark mb-4">Thông tin chuyến hàng</h3>
-              <p className="text-sm text-gray-600 mb-1">{order.product_type} | {order.weight} kg | {order.boxes} thùng</p>
+              <p className="text-sm text-gray-600 mb-4 font-medium">{order.product_type} | {order.weight} kg | {order.boxes} thùng</p>
+              
+              <button 
+                onClick={() => setShowDetail(true)}
+                className="inline-flex items-center gap-2 border-2 border-agro-dark text-agro-dark font-bold px-6 py-2 rounded-xl hover:bg-agro-dark hover:text-white transition-colors"
+              >
+                <Eye className="w-5 h-5" /> XEM CHI TIẾT
+              </button>
             </div>
             <div className="bg-green-50 rounded-2xl p-6 border border-green-100">
               <div className="flex items-center gap-2 text-agro-dark font-bold mb-2">
                 <Truck className="w-5 h-5" /> Tài xế: {order.driver_name || 'Nguyễn Văn A'}
               </div>
-              <p className="text-sm text-gray-600 mb-1">SĐT: {order.driver_phone || '+84905xxxxxxx'}</p>
+              <p className="text-sm text-gray-600 mb-1 font-medium">SĐT: {order.driver_phone || '+84905xxxxxxx'}</p>
               <div className="mt-4 pt-4 border-t border-green-200 flex items-center gap-2 text-agro-dark">
                 <Thermometer className="w-5 h-5" />
                 <span className="font-bold">Nhiệt độ: {order.temperature}°C (13-15°C)</span>
@@ -110,6 +118,48 @@ export default function TrackingPage() {
           </div>
         </div>
       </div>
+
+      {/* MODAL CHI TIẾT */}
+      {showDetail && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowDetail(false)}>
+          <div className="bg-white rounded-2xl p-8 max-w-lg w-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-2xl font-bold text-agro-dark">Chi tiết chuyến hàng</h3>
+              <button onClick={() => setShowDetail(false)} className="text-gray-400 hover:text-agro-dark transition-colors">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="bg-green-50 rounded-2xl p-6 border border-green-100 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm text-gray-500 font-medium">Tài xế</p>
+                  <p className="font-bold text-agro-dark">{order.driver_name || 'Nguyễn Văn A'} ({order.driver_phone || '+84905xxxxxxx'})</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500 font-medium">Xe</p>
+                  <p className="font-bold text-agro-dark">Xe tải lạnh AgroCold</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500 font-medium">Dự kiến giao</p>
+                  <p className="font-bold text-agro-dark">Trong ngày</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500 font-medium">Trạng thái nhiệt độ</p>
+                  <p className="font-bold text-agro-green">Within Range · 13–15°C</p>
+                </div>
+              </div>
+            </div>
+
+            <button 
+              onClick={() => setShowDetail(false)}
+              className="w-full mt-6 bg-agro-yellow hover:bg-yellow-500 text-agro-dark font-bold py-3 rounded-xl transition-colors"
+            >
+              ĐÓNG
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
