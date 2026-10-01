@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Leaf, LogOut } from 'lucide-react';
+import { LogOut } from 'lucide-react';
 
 export default function Header() {
   const location = useLocation();
@@ -22,12 +22,10 @@ export default function Header() {
   return (
     <header className="bg-white shadow-sm sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between items-center h-16">
-          <Link to="/" className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-agro-dark rounded-lg flex items-center justify-center">
-              <Leaf className="text-white w-5 h-5" />
-            </div>
-            <span className="text-xl font-bold text-agro-dark">AgroCold</span>
+        <div className="flex justify-between items-center h-20">
+          <Link to="/" className="flex items-center gap-3">
+            <img src="/logo.jpg" alt="AgroCold Logo" className="w-12 h-12 object-contain" />
+            <span className="text-2xl font-bold text-agro-dark">AgroCold</span>
           </Link>
           <nav className="hidden md:flex items-center space-x-8">
             {navItems.map((item) => (

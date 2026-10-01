@@ -1,14 +1,16 @@
 import { supabase } from '../lib/supabaseClient';
 
-// Hàm tạo đơn hàng mới
 export const createOrder = async (orderData) => {
-  const boxes = Math.ceil(orderData.weight / 250);
+  // ÉP KIỂU SỐ CHO WEIGHT ĐỂ TRÁNH LỖI TÍNH TOÁN
+  const weight = parseFloat(orderData.weight);
+  const boxes = Math.ceil(weight / 250);
   const orderCode = `AC-${new Date().getFullYear()}-${Math.floor(10000 + Math.random() * 90000)}`;
 
   const { data: order, error: orderError } = await supabase
     .from('orders')
     .insert([{
       ...orderData,
+      weight: weight, // Lưu số đã ép kiểu
       boxes,
       order_code: orderCode,
       status: 'pending',
@@ -19,7 +21,6 @@ export const createOrder = async (orderData) => {
 
   if (orderError) throw orderError;
 
-  // Tự động tạo các thùng tương ứng
   const boxInserts = Array.from({ length: boxes }).map((_, i) => ({
     box_code: `${orderCode}-B${i + 1}`,
     order_id: order.id,
@@ -35,7 +36,6 @@ export const createOrder = async (orderData) => {
   return order;
 };
 
-// Hàm lấy đơn hàng theo mã
 export const getOrderByCode = async (code) => {
   const { data, error } = await supabase
     .from('orders')
@@ -46,7 +46,6 @@ export const getOrderByCode = async (code) => {
   return data;
 };
 
-// Hàm lắng nghe sự thay đổi của đơn hàng (Realtime)
 export const subscribeToOrder = (orderCode, callback) => {
   return supabase
     .channel(`order-${orderCode}`)
@@ -57,7 +56,6 @@ export const subscribeToOrder = (orderCode, callback) => {
     .subscribe();
 };
 
-// Hàm lấy đơn hàng theo số điện thoại (cho User tra cứu)
 export const getOrdersByPhone = async (phone) => {
   const { data, error } = await supabase
     .from('orders')
@@ -68,7 +66,6 @@ export const getOrdersByPhone = async (phone) => {
   return data;
 };
 
-// Hàm hủy đơn hàng
 export const cancelOrder = async (orderId) => {
   const { data, error } = await supabase
     .from('orders')
