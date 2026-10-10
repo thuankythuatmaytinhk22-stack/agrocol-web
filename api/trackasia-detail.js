@@ -1,6 +1,4 @@
 // api/trackasia-detail.js — Lấy chi tiết địa chỉ từ ref_id
-const TRACKASIA_KEY = '1791638476f22480510a59e4bb27fbf3d1';
-
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -9,24 +7,25 @@ export default async function handler(req, res) {
   const { refid } = req.query;
   if (!refid) return res.status(400).json({ error: 'Missing refid' });
 
+  const apiKey = '1791638476f22480510a59e4bb27fbf3d1';
+
   try {
     const response = await fetch(
-      `https://maps.track-asia.com/api/v1/place?refid=${refid}`,
-      {
-        headers: {
-          'X-API-KEY': TRACKASIA_KEY,
-          'Accept': 'application/json',
-        },
-      }
+      `https://maps.track-asia.com/api/v1/place?key=${apiKey}&refid=${refid}`
     );
 
+    const rawText = await response.text();
+    console.log('TrackAsia detail raw:', response.status, rawText.slice(0, 200));
+
     if (!response.ok) {
-      const errText = await response.text();
-      console.error('TrackAsia detail error:', response.status, errText);
-      return res.status(response.status).json({ error: 'TrackAsia detail error' });
+      return res.status(response.status).json({
+        error: 'TrackAsia detail error',
+        status: response.status,
+        detail: rawText,
+      });
     }
 
-    const data = await response.json();
+    const data = JSON.parse(rawText);
     return res.status(200).json({
       lat: data.lat,
       lng: data.lng,

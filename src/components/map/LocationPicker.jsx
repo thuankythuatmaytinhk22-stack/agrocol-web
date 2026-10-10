@@ -42,7 +42,6 @@ export default function LocationPicker({ value, onChange, label = 'Chọn vị t
     onChange(data);
   };
 
-  // Debounced search khi user gõ
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (!searchQuery.trim() || searchQuery.length < 2) {
@@ -57,10 +56,12 @@ export default function LocationPicker({ value, onChange, label = 'Chọn vị t
           `${window.location.origin}/api/trackasia?text=${encodeURIComponent(searchQuery)}`
         );
         const data = await res.json();
-        // TrackAsia trả về mảng các địa điểm
-        const items = Array.isArray(data) ? data : (data.data || []);
-        setSuggestions(items.slice(0, 6));
-        setShowDropdown(true);
+        if (Array.isArray(data)) {
+          setSuggestions(data.slice(0, 6));
+          setShowDropdown(true);
+        } else {
+          setSuggestions([]);
+        }
       } catch (err) {
         console.error('Lỗi search:', err);
         setSuggestions([]);
@@ -72,22 +73,10 @@ export default function LocationPicker({ value, onChange, label = 'Chọn vị t
     return () => clearTimeout(debounceRef.current);
   }, [searchQuery]);
 
-  const handleSelectSuggestion = async (s) => {
-    const refId = s.ref_id || s.refId || s.id;
-    try {
-      const res = await fetch(
-        `${window.location.origin}/api/trackasia-detail?refid=${refId}`
-      );
-      const data = await res.json();
-      if (data && data.lat && data.lng) {
-        handlePick(parseFloat(data.lat), parseFloat(data.lng), data.name || data.address);
-        setSearchQuery(data.name || data.address || '');
-      } else {
-        alert('Không lấy được tọa độ. Vui lòng click trực tiếp trên bản đồ.');
-      }
-    } catch (err) {
-      console.error(err);
-      alert('Lỗi kết nối. Vui lòng click trực tiếp trên bản đồ.');
+  const handleSelectSuggestion = (s) => {
+    if (s.lat && s.lng) {
+      handlePick(parseFloat(s.lat), parseFloat(s.lng), s.address || s.name);
+      setSearchQuery(s.address || s.name);
     }
     setShowDropdown(false);
   };
@@ -121,12 +110,8 @@ export default function LocationPicker({ value, onChange, label = 'Chọn vị t
                 onClick={() => handleSelectSuggestion(s)}
                 className="w-full text-left px-4 py-2.5 hover:bg-green-50 border-b border-gray-50 last:border-0 transition-colors"
               >
-                <p className="text-sm font-semibold text-agro-dark truncate">
-                  {s.name || s.address}
-                </p>
-                <p className="text-xs text-gray-500 truncate">
-                  {s.address || s.display || ''}
-                </p>
+                <p className="text-sm font-semibold text-agro-dark truncate">{s.name}</p>
+                <p className="text-xs text-gray-500 truncate">{s.address}</p>
               </button>
             ))}
           </div>
