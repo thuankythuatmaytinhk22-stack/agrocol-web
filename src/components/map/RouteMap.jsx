@@ -66,9 +66,9 @@ export default function RouteMap({ points = [] }) {
       <div className="w-full h-[450px] rounded-2xl overflow-hidden border border-gray-200">
         <MapContainer center={center} zoom={6} style={{ height: '100%', width: '100%' }}>
           <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-            url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-          />
+  attribution='&copy; <a href="https://www.maptiler.com/copyright/">MapTiler</a>'
+  url={`https://api.maptiler.com/maps/outdoor-v2/{z}/{x}/{y}.png?key=0kgv1m784H4kd86re01y`}
+/>
 
           {roadPath.length > 0 && (
             <Polyline positions={roadPath} pathOptions={{ color: '#0F4C3A', weight: 5, opacity: 0.8 }} />
