@@ -11,7 +11,7 @@ export default async function handler(req, res) {
 
   try {
     const response = await fetch(
-      `https://maps.track-asia.com/api/v1/autocomplete?key=${apiKey}&text=${encodeURIComponent(text)}&country=vn&limit=8`
+      `https://maps.track-asia.com/api/v1/autocomplete?key=${apiKey}&text=${encodeURIComponent(text)}&new_admin=true&limit=8`
     );
 
     const rawText = await response.text();
@@ -28,29 +28,20 @@ export default async function handler(req, res) {
     const results = (data.features || []).map((f) => {
       const p = f.properties || {};
       const geo = f.geometry || {};
-
-      // Xây dựng địa chỉ đầy đủ từ các trường có sẵn
-      const addressParts = [
-        p.housenumber,
-        p.street,
-        p.ward || p["phường"],
-        p.district || p["quận"],
-        p.city || p["thành phố"],
-        p.country,
-      ].filter(Boolean);
-
-      const fullAddress = p.address || addressParts.join(', ');
-
       return {
-        name: p.name || p.street || p.address || '',
-        full_name: fullAddress || p.name || '',
-        address: fullAddress,
+        // Tên ngắn (VD: "43 Diên Hồng")
+        name: p.name || p.street || '',
+        // Địa chỉ đầy đủ (VD: "43 Diên Hồng, Phường Hòa Xuân, Quận Cẩm Lệ, Thành phố Đà Nẵng")
+        label: p.label || p.name || '',
+        // Tọa độ
         lat: geo.coordinates?.[1] || null,
         lng: geo.coordinates?.[0] || null,
+        // Thông tin hành chính
+        city: p.region || '',
+        district: p.county || '',
+        ward: p.locality || '',
+        country: p.country || '',
         ref_id: p.id || '',
-        city: p.city || '',
-        district: p.district || '',
-        ward: p.ward || '',
       };
     });
 

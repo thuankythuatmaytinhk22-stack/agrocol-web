@@ -34,7 +34,7 @@ export default function LocationPicker({ value, onChange, label = 'Chọn vị t
   const [searching, setSearching] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const debounceRef = useRef(null);
-  const selectingRef = useRef(false); // Cờ đánh dấu đang chọn
+  const selectingRef = useRef(false);
 
   const handlePick = (lat, lng, address = null) => {
     setPosition([lat, lng]);
@@ -51,7 +51,6 @@ export default function LocationPicker({ value, onChange, label = 'Chọn vị t
     }
 
     debounceRef.current = setTimeout(async () => {
-      // Nếu đang chọn suggestion thì không search lại
       if (selectingRef.current) return;
 
       setSearching(true);
@@ -78,19 +77,17 @@ export default function LocationPicker({ value, onChange, label = 'Chọn vị t
   }, [searchQuery]);
 
   const handleSelectSuggestion = (s) => {
-    // Đánh dấu đang chọn để không trigger search
     selectingRef.current = true;
     setShowDropdown(false);
     setSuggestions([]);
 
     if (s.lat && s.lng) {
-      // Ưu tiên full_name > address > name
-      const displayAddress = s.full_name || s.address || s.name;
+      // Dùng `label` (địa chỉ đầy đủ) nếu có, fallback về `name`
+      const displayAddress = s.label || s.name;
       handlePick(parseFloat(s.lat), parseFloat(s.lng), displayAddress);
       setSearchQuery(displayAddress);
     }
 
-    // Reset cờ sau khi đã chọn xong
     setTimeout(() => {
       selectingRef.current = false;
     }, 500);
@@ -121,26 +118,20 @@ export default function LocationPicker({ value, onChange, label = 'Chọn vị t
               <button
                 key={i}
                 type="button"
-                onMouseDown={(e) => e.preventDefault()} // Ngăn blur khi click
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => handleSelectSuggestion(s)}
                 className="w-full text-left px-4 py-3 hover:bg-green-50 border-b border-gray-50 last:border-0 transition-colors flex items-start gap-3"
               >
                 <span className="text-agro-dark mt-0.5 flex-shrink-0">📍</span>
                 <div className="flex-1 min-w-0">
-                  {/* Tên địa chỉ đầy đủ - dòng 1 */}
+                  {/* Tên ngắn - dòng 1 */}
                   <p className="text-sm font-bold text-agro-dark truncate">
-                    {s.full_name || s.name}
+                    {s.name}
                   </p>
-                  {/* Địa chỉ chi tiết (quận/huyện/tỉnh) - dòng 2 */}
-                  {s.address && s.address !== s.full_name && (
+                  {/* Địa chỉ đầy đủ - dòng 2 */}
+                  {s.label && s.label !== s.name && (
                     <p className="text-xs text-gray-500 truncate mt-0.5">
-                      {s.address}
-                    </p>
-                  )}
-                  {/* Hiển thị quận/tỉnh nếu có */}
-                  {(s.district || s.city) && !s.address && (
-                    <p className="text-xs text-gray-500 truncate mt-0.5">
-                      {[s.district, s.city].filter(Boolean).join(', ')}
+                      {s.label}
                     </p>
                   )}
                 </div>
