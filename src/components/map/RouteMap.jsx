@@ -1,8 +1,8 @@
+import { useState, useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
-// Fix lỗi icon marker mặc định của Leaflet
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
@@ -10,7 +10,6 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
-// Icon tùy chỉnh cho từng loại điểm
 const createIcon = (color, label) => {
   return L.divIcon({
     className: 'custom-marker',
@@ -21,55 +20,104 @@ const createIcon = (color, label) => {
 };
 
 export default function RouteMap({ points = [] }) {
+  const [roadPath, setRoadPath] = useState([]);
+  const [loadingRoute, setLoadingRoute] = useState(false);
+
+  useEffect(() => {
+    if (points.length < 2) return;
+
+    const fetchRoute = async () => {
+      setLoadingRoute(true);
+      try {
+        const coords = points.map((p) => `${p.lng},${p.lat}`).join(';');
+        const res = await fetch(
+          `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`
+        );
+        const data = await res.json();
+        if (data.routes && data.routes[0]) {
+          const coordsArray = data.routes[0].geometry.coordinates.map((c) => [c[1], c[0]]);
+          setRoadPath(coordsArray);
+        }
+      } catch (err) {
+        console.error('Lỗi OSRM:', err);
+        setRoadPath(points.map((p) => [p.lat, p.lng]));
+      } finally {
+        setLoadingRoute(false);
+      }
+    };
+
+    fetchRoute();
+  }, [points]);
+
   if (!points.length) return null;
 
-  // Tính tâm bản đồ
   const center = [
     points.reduce((sum, p) => sum + p.lat, 0) / points.length,
     points.reduce((sum, p) => sum + p.lng, 0) / points.length,
   ];
 
-  // Polyline path
-  const polylinePath = points.map((p) => [p.lat, p.lng]);
-
   return (
-    <div className="w-full h-[400px] rounded-2xl overflow-hidden border border-gray-200">
-      <MapContainer center={center} zoom={6} style={{ height: '100%', width: '100%' }}>
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
-        <Polyline
-          positions={polylinePath}
-          pathOptions={{ color: '#0F4C3A', weight: 3, opacity: 0.7, dashArray: '8, 8' }}
-        />
-        {points.map((p, i) => {
-          const color = p.kind === 'hub' ? '#F4C542' : p.kind === 'pickup' ? '#4CAF50' : '#0F4C3A';
-          const label = i + 1;
-          return (
-            <Marker key={p.id} position={[p.lat, p.lng]} icon={createIcon(color, label)}>
-              <Popup>
-                <div className="font-sans">
-                  <p className="font-bold text-agro-dark">{p.label}</p>
-                  <p className="text-xs text-gray-500">
-                    {p.kind === 'hub' ? 'Kho' : p.kind === 'pickup' ? 'Lấy hàng' : 'Giao hàng'} · Thứ tự #{label}
-                  </p>
-                  {p.product && (
-                    <p className="text-xs mt-1">
-                      <strong>{p.product.name}</strong> · Bảo quản {p.shelfHours}h
+    <div className="relative">
+      {loadingRoute && (
+        <div className="absolute top-3 right-3 z-[1000] bg-white px-3 py-2 rounded-xl shadow-md text-xs font-bold text-agro-dark">
+          🚗 Đang tính đường đi...
+        </div>
+      )}
+      <div className="w-full h-[450px] rounded-2xl overflow-hidden border border-gray-200">
+        <MapContainer center={center} zoom={6} style={{ height: '100%', width: '100%' }}>
+          <TileLayer
+            attribution='&copy; <a href="https://carto.com/">CARTO</a>'
+            url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+          />
+
+          {roadPath.length > 0 && (
+            <Polyline
+              positions={roadPath}
+              pathOptions={{ color: '#0F4C3A', weight: 5, opacity: 0.8 }}
+            />
+          )}
+
+          {roadPath.length === 0 && (
+            <Polyline
+              positions={points.map((p) => [p.lat, p.lng])}
+              pathOptions={{ color: '#0F4C3A', weight: 3, opacity: 0.6, dashArray: '8, 8' }}
+            />
+          )}
+
+          {points.map((p, i) => {
+            const color =
+              p.kind === 'hub' ? '#F4C542' : p.kind === 'pickup' ? '#4CAF50' : '#0F4C3A';
+            const label = i + 1;
+            return (
+              <Marker key={p.id} position={[p.lat, p.lng]} icon={createIcon(color, label)}>
+                <Popup>
+                  <div className="font-sans">
+                    <p className="font-bold text-agro-dark">{p.label}</p>
+                    <p className="text-xs text-gray-500">
+                      {p.kind === 'hub'
+                        ? 'Kho'
+                        : p.kind === 'pickup'
+                        ? 'Lấy hàng'
+                        : 'Giao hàng'}{' '}
+                      · Thứ tự #{label}
                     </p>
-                  )}
-                  {p.order && (
-                    <p className="text-xs text-gray-600 mt-1">
-                      Mã đơn: {p.order.order_code}
-                    </p>
-                  )}
-                </div>
-              </Popup>
-            </Marker>
-          );
-        })}
-      </MapContainer>
+                    {p.product && (
+                      <p className="text-xs mt-1">
+                        <strong>{p.product.name}</strong> · Bảo quản {p.shelfHours}h
+                      </p>
+                    )}
+                    {p.order && (
+                      <p className="text-xs text-gray-600 mt-1">
+                        Mã đơn: {p.order.order_code}
+                      </p>
+                    )}
+                  </div>
+                </Popup>
+              </Marker>
+            );
+          })}
+        </MapContainer>
+      </div>
     </div>
   );
 }

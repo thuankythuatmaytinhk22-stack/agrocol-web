@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { createOrder } from '../services/orderService';
 import { CheckCircle } from 'lucide-react';
 import { calcBoxes, calcCost, matchProduct } from '../lib/coldChain';
+import LocationPicker from '../components/map/LocationPicker';
 
 const EMPTY_FORM = {
   customer_name: '',
@@ -40,12 +41,18 @@ export default function BookingPage() {
     const boxes = calcBoxes(draft.weight);
     return { formData, boxes, cost: calcCost(boxes) };
   });
+
   const [formData, setFormData] = useState(boot.formData);
   const [boxes, setBoxes] = useState(boot.boxes);
   const [cost, setCost] = useState(boot.cost);
   const [successBoxes, setSuccessBoxes] = useState(0);
   const [isSuccess, setIsSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  // State cho tọa độ
+  const [pickupCoords, setPickupCoords] = useState({ lat: null, lng: null });
+  const [deliveryCoords, setDeliveryCoords] = useState({ lat: null, lng: null });
+
   const product = matchProduct(formData.product_type);
 
   const handleChange = (e) => {
@@ -60,13 +67,28 @@ export default function BookingPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // Validate tọa độ
+    if (!pickupCoords.lat || !deliveryCoords.lat) {
+      alert('Bạn cần chọn vị trí lấy hàng và giao hàng trên bản đồ!');
+      return;
+    }
+
     setLoading(true);
     try {
       const currentBoxes = boxes;
-      await createOrder(formData);
+      await createOrder({
+        ...formData,
+        pickup_lat: pickupCoords.lat,
+        pickup_lng: pickupCoords.lng,
+        delivery_lat: deliveryCoords.lat,
+        delivery_lng: deliveryCoords.lng,
+      });
       setSuccessBoxes(currentBoxes);
       setIsSuccess(true);
-      setFormData({ customer_name: '', customer_phone: '', product_type: '', weight: '', send_date: '', pickup_address: '', delivery_address: '' });
+      setFormData(EMPTY_FORM);
+      setPickupCoords({ lat: null, lng: null });
+      setDeliveryCoords({ lat: null, lng: null });
       setBoxes(0);
       setCost(0);
       setTimeout(() => {
@@ -88,58 +110,122 @@ export default function BookingPage() {
 
         <div className="grid md:grid-cols-3 gap-8">
           <div className="md:col-span-2 bg-white rounded-2xl p-8 shadow-sm border border-gray-100">
-            <form onSubmit={handleSubmit} className="grid md:grid-cols-2 gap-6">
+            <form onSubmit={handleSubmit} className="space-y-6">
               
-              <div>
-                <label className="block text-sm font-semibold mb-2 text-agro-dark">Tên người đặt</label>
-                <input name="customer_name" value={formData.customer_name} onChange={handleChange} required
-                  className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-agro-dark outline-none text-agro-dark font-medium" placeholder="VD: Nguyễn Văn A" />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold mb-2 text-agro-dark">Số điện thoại</label>
-                <input name="customer_phone" value={formData.customer_phone} onChange={handleChange} required
-                  className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-agro-dark outline-none text-agro-dark font-medium" placeholder="VD: 0905xxxxxx" />
+              {/* Thông tin khách hàng */}
+              <div className="grid md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-semibold mb-2 text-agro-dark">
+                    Tên người đặt
+                  </label>
+                  <input
+                    name="customer_name"
+                    value={formData.customer_name}
+                    onChange={handleChange}
+                    required
+                    className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-agro-dark outline-none text-agro-dark font-medium"
+                    placeholder="VD: Nguyễn Văn A"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold mb-2 text-agro-dark">
+                    Số điện thoại
+                  </label>
+                  <input
+                    name="customer_phone"
+                    value={formData.customer_phone}
+                    onChange={handleChange}
+                    required
+                    className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-agro-dark outline-none text-agro-dark font-medium"
+                    placeholder="VD: 0905xxxxxx"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-semibold mb-2 text-agro-dark">Loại nông sản</label>
-                <input name="product_type" value={formData.product_type} onChange={handleChange} required
-                  className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-agro-dark outline-none text-agro-dark font-medium" placeholder="VD: Sầu riêng" />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold mb-2 text-agro-dark">Ngày gửi</label>
-                <input type="date" name="send_date" value={formData.send_date} onChange={handleChange} required
-                  className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-agro-dark outline-none text-agro-dark font-medium" />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold mb-2 text-agro-dark">Khối lượng (kg)</label>
-                <input type="number" name="weight" value={formData.weight} onChange={handleChange} required
-                  className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-agro-dark outline-none text-agro-dark font-medium" placeholder="VD: 650" />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold mb-2 text-agro-dark">Số thùng (ước tính)</label>
-                <div className="w-full bg-green-50 border border-green-100 rounded-xl px-4 py-3 text-agro-dark font-bold text-lg">
-                  {boxes > 0 ? `${boxes} thùng` : 'Chưa xác định'}
+              {/* Thông tin hàng hóa */}
+              <div className="grid md:grid-cols-3 gap-6">
+                <div>
+                  <label className="block text-sm font-semibold mb-2 text-agro-dark">
+                    Loại nông sản
+                  </label>
+                  <input
+                    name="product_type"
+                    value={formData.product_type}
+                    onChange={handleChange}
+                    required
+                    className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-agro-dark outline-none text-agro-dark font-medium"
+                    placeholder="VD: Sầu riêng"
+                  />
                 </div>
-                <p className="text-xs text-gray-400 mt-1">Ước tính theo định mức 250 kg/thùng · {product.name}</p>
+                <div>
+                  <label className="block text-sm font-semibold mb-2 text-agro-dark">
+                    Ngày gửi
+                  </label>
+                  <input
+                    type="date"
+                    name="send_date"
+                    value={formData.send_date}
+                    onChange={handleChange}
+                    required
+                    className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-agro-dark outline-none text-agro-dark font-medium"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold mb-2 text-agro-dark">
+                    Khối lượng (kg)
+                  </label>
+                  <input
+                    type="number"
+                    name="weight"
+                    value={formData.weight}
+                    onChange={handleChange}
+                    required
+                    className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-agro-dark outline-none text-agro-dark font-medium"
+                    placeholder="VD: 650"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-semibold mb-2 text-agro-dark">Điểm lấy hàng</label>
-                <input name="pickup_address" value={formData.pickup_address} onChange={handleChange} required
-                  className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-agro-dark outline-none text-agro-dark font-medium" placeholder="VD: Nhà vườn Đắk Lắk" />
+
+              {/* Điểm lấy hàng */}
+              <div className="border-t border-gray-100 pt-6">
+                <LocationPicker
+                  label="📍 Điểm lấy hàng"
+                  value={pickupCoords}
+                  onChange={(coords) => {
+                    setPickupCoords(coords);
+                    if (coords.address) {
+                      setFormData((prev) => ({ ...prev, pickup_address: coords.address }));
+                    }
+                  }}
+                />
               </div>
-              <div>
-                <label className="block text-sm font-semibold mb-2 text-agro-dark">Điểm giao</label>
-                <input name="delivery_address" value={formData.delivery_address} onChange={handleChange} required
-                  className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-agro-dark outline-none text-agro-dark font-medium" placeholder="VD: Chợ Bình Điền, TP.HCM" />
+
+              {/* Điểm giao hàng */}
+              <div className="border-t border-gray-100 pt-6">
+                <LocationPicker
+                  label="🎯 Điểm giao hàng"
+                  value={deliveryCoords}
+                  onChange={(coords) => {
+                    setDeliveryCoords(coords);
+                    if (coords.address) {
+                      setFormData((prev) => ({ ...prev, delivery_address: coords.address }));
+                    }
+                  }}
+                />
               </div>
-              <div className="md:col-span-2">
-                <button type="submit" disabled={loading}
-                  className="w-full bg-agro-yellow hover:bg-yellow-500 text-agro-dark font-bold text-lg py-4 rounded-xl transition-colors disabled:opacity-50">
+
+              {/* Nút submit */}
+              <div className="border-t border-gray-100 pt-6">
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-agro-yellow hover:bg-yellow-500 text-agro-dark font-bold text-lg py-4 rounded-xl transition-colors disabled:opacity-50"
+                >
                   {loading ? 'ĐANG XỬ LÝ...' : 'XÁC NHẬN ĐẶT THÙNG'}
                 </button>
               </div>
             </form>
+
             {isSuccess && (
               <div className="mt-4 bg-green-100 text-agro-dark p-4 rounded-xl flex items-center gap-3 font-semibold">
                 <CheckCircle className="w-6 h-6" />
@@ -148,6 +234,7 @@ export default function BookingPage() {
             )}
           </div>
 
+          {/* Sidebar tóm tắt */}
           <div className="space-y-6">
             <div className="bg-agro-dark text-white rounded-2xl p-6 shadow-md">
               <p className="text-sm opacity-80 mb-1 font-medium">Chi phí dự kiến</p>
@@ -156,7 +243,9 @@ export default function BookingPage() {
               </h3>
               <hr className="my-4 border-white/20" />
               <p className="text-sm opacity-80 font-medium">Số thùng ước tính</p>
-              <p className="text-2xl font-bold text-white">{boxes > 0 ? `${boxes} thùng` : 'Chưa xác định'}</p>
+              <p className="text-2xl font-bold text-white">
+                {boxes > 0 ? `${boxes} thùng` : 'Chưa xác định'}
+              </p>
             </div>
             <div className="bg-green-50 rounded-2xl p-6 border border-green-100">
               <div className="flex items-center gap-2 text-agro-dark font-bold mb-1">

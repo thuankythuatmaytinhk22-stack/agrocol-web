@@ -2,7 +2,6 @@ import { supabase } from '../lib/supabaseClient';
 import { calcBoxes, matchProduct } from '../lib/coldChain';
 
 export const createOrder = async (orderData) => {
-  // ÉP KIỂU SỐ CHO WEIGHT ĐỂ TRÁNH LỖI TÍNH TOÁN
   const weight = parseFloat(orderData.weight);
   const boxes = calcBoxes(weight);
   const product = matchProduct(orderData.product_type);
@@ -12,11 +11,15 @@ export const createOrder = async (orderData) => {
     .from('orders')
     .insert([{
       ...orderData,
-      weight: weight, // Lưu số đã ép kiểu
+      weight: weight,
       boxes,
       order_code: orderCode,
       status: 'pending',
-      temperature: product.minTemp
+      temperature: product.minTemp,
+      pickup_lat: orderData.pickup_lat || null,
+      pickup_lng: orderData.pickup_lng || null,
+      delivery_lat: orderData.delivery_lat || null,
+      delivery_lng: orderData.delivery_lng || null,
     }])
     .select()
     .single();
@@ -51,7 +54,7 @@ export const getOrderByCode = async (code) => {
 export const subscribeToOrder = (orderCode, callback) => {
   return supabase
     .channel(`order-${orderCode}`)
-    .on('postgres_changes', 
+    .on('postgres_changes',
       { event: 'UPDATE', schema: 'public', table: 'orders', filter: `order_code=eq.${orderCode}` },
       (payload) => callback(payload.new)
     )
