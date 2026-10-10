@@ -66,15 +66,12 @@ export default function RouteMap({ points = [] }) {
       <div className="w-full h-[450px] rounded-2xl overflow-hidden border border-gray-200">
         <MapContainer center={center} zoom={6} style={{ height: '100%', width: '100%' }}>
           <TileLayer
-            attribution='&copy; <a href="https://carto.com/">CARTO</a>'
-            url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
 
           {roadPath.length > 0 && (
-            <Polyline
-              positions={roadPath}
-              pathOptions={{ color: '#0F4C3A', weight: 5, opacity: 0.8 }}
-            />
+            <Polyline positions={roadPath} pathOptions={{ color: '#0F4C3A', weight: 5, opacity: 0.8 }} />
           )}
 
           {roadPath.length === 0 && (
@@ -85,8 +82,7 @@ export default function RouteMap({ points = [] }) {
           )}
 
           {points.map((p, i) => {
-            const color =
-              p.kind === 'hub' ? '#F4C542' : p.kind === 'pickup' ? '#4CAF50' : '#0F4C3A';
+            const color = p.kind === 'hub' ? '#F4C542' : p.kind === 'pickup' ? '#4CAF50' : '#0F4C3A';
             const label = i + 1;
             return (
               <Marker key={p.id} position={[p.lat, p.lng]} icon={createIcon(color, label)}>
@@ -94,12 +90,7 @@ export default function RouteMap({ points = [] }) {
                   <div className="font-sans">
                     <p className="font-bold text-agro-dark">{p.label}</p>
                     <p className="text-xs text-gray-500">
-                      {p.kind === 'hub'
-                        ? 'Kho'
-                        : p.kind === 'pickup'
-                        ? 'Lấy hàng'
-                        : 'Giao hàng'}{' '}
-                      · Thứ tự #{label}
+                      {p.kind === 'hub' ? 'Kho' : p.kind === 'pickup' ? 'Lấy hàng' : 'Giao hàng'} · Thứ tự #{label}
                     </p>
                     {p.product && (
                       <p className="text-xs mt-1">
@@ -107,9 +98,7 @@ export default function RouteMap({ points = [] }) {
                       </p>
                     )}
                     {p.order && (
-                      <p className="text-xs text-gray-600 mt-1">
-                        Mã đơn: {p.order.order_code}
-                      </p>
+                      <p className="text-xs text-gray-600 mt-1">Mã đơn: {p.order.order_code}</p>
                     )}
                   </div>
                 </Popup>

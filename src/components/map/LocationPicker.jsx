@@ -3,7 +3,6 @@ import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
-// Fix icon marker
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
@@ -11,7 +10,6 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
-// Component bắt sự kiện click trên bản đồ
 function ClickHandler({ onPick }) {
   useMapEvents({
     click: (e) => {
@@ -21,7 +19,6 @@ function ClickHandler({ onPick }) {
   return null;
 }
 
-// Component để di chuyển bản đồ khi tọa độ thay đổi
 function RecenterMap({ lat, lng }) {
   const map = useMapEvents({});
   useEffect(() => {
@@ -32,7 +29,7 @@ function RecenterMap({ lat, lng }) {
 
 export default function LocationPicker({ value, onChange, label = 'Chọn vị trí' }) {
   const [position, setPosition] = useState(
-    value?.lat && value?.lng ? [value.lat, value.lng] : [12.6662, 108.0382] // Mặc định Buôn Ma Thuột
+    value?.lat && value?.lng ? [value.lat, value.lng] : [12.6662, 108.0382]
   );
   const [searchQuery, setSearchQuery] = useState('');
   const [searching, setSearching] = useState(false);
@@ -42,13 +39,12 @@ export default function LocationPicker({ value, onChange, label = 'Chọn vị t
     onChange({ lat, lng });
   };
 
-  // Tìm kiếm địa chỉ bằng Nominatim (OpenStreetMap)
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
     setSearching(true);
     try {
       const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=1&countrycodes=vn`
+        `${window.location.origin}/api/geocode?q=${encodeURIComponent(searchQuery)}`
       );
       const data = await res.json();
       if (data && data.length > 0) {
@@ -60,7 +56,7 @@ export default function LocationPicker({ value, onChange, label = 'Chọn vị t
       }
     } catch (err) {
       console.error(err);
-      alert('Lỗi tìm kiếm địa chỉ');
+      alert('Lỗi tìm kiếm địa chỉ. Vui lòng thử lại.');
     } finally {
       setSearching(false);
     }
@@ -70,7 +66,6 @@ export default function LocationPicker({ value, onChange, label = 'Chọn vị t
     <div className="space-y-2">
       <label className="block text-sm font-semibold text-agro-dark">{label}</label>
 
-      {/* Search bar */}
       <div className="flex gap-2">
         <input
           type="text"
@@ -90,16 +85,11 @@ export default function LocationPicker({ value, onChange, label = 'Chọn vị t
         </button>
       </div>
 
-      {/* Map */}
       <div className="w-full h-[300px] rounded-xl overflow-hidden border border-gray-200">
-        <MapContainer
-          center={position}
-          zoom={6}
-          style={{ height: '100%', width: '100%' }}
-        >
+        <MapContainer center={position} zoom={6} style={{ height: '100%', width: '100%' }}>
           <TileLayer
-            attribution='&copy; <a href="https://carto.com/">CARTO</a>'
-            url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
           <ClickHandler onPick={handlePick} />
           <RecenterMap lat={position[0]} lng={position[1]} />
@@ -107,7 +97,6 @@ export default function LocationPicker({ value, onChange, label = 'Chọn vị t
         </MapContainer>
       </div>
 
-      {/* Hiển thị tọa độ */}
       {value?.lat && value?.lng && (
         <p className="text-xs text-gray-500 font-medium">
           📍 Tọa độ: {value.lat.toFixed(4)}, {value.lng.toFixed(4)}
