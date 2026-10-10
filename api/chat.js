@@ -1,5 +1,5 @@
 // api/chat.js — Vercel Serverless Function
-// File này chạy trên server, không lộ API key ra trình duyệt
+// Dùng Gemini 2.5 Flash với key AQ. qua header
 
 const PRODUCT_CATALOG = [
   { name: 'Sầu riêng', minTemp: 13, maxTemp: 15, shelfHours: 36, note: 'Nhạy cảm với nhiệt độ cao' },
@@ -15,64 +15,69 @@ const SYSTEM_PROMPT = `Bạn là trợ lý AI tư vấn của AgroCold - công t
 NHIỆM VỤ:
 - Tư vấn khách hàng về đặt thùng lạnh vận chuyển nông sản.
 - Trả lời thân thiện, tự nhiên, xưng "mình" và gọi khách là "bạn".
-- KHÔNG trả lời máy móc. Nếu khách hỏi xã giao, hãy trả lời tự nhiên.
+- KHÔNG trả lời máy móc.
 
 KIẾN THỨC:
 - Định mức: 250kg/thùng. Ví dụ: 500kg = 2 thùng, 650kg = 3 thùng.
 - Giá: 250.000đ/thùng.
-- Nhiệt độ bảo quản theo loại nông sản:
-${PRODUCT_CATALOG.map(p => `  • ${p.name}: ${p.minTemp}-${p.maxTemp}°C, bảo quản ${p.shelfHours}h. ${p.note}`).join('\n')}
-- Tuyến phổ biến: Đắk Lắk → Hà Nội (~1.200km), Đà Lạt → TP.HCM (~300km).
+- Nhiệt độ bảo quản:
+${PRODUCT_CATALOG.map(p => `  • ${p.name}: ${p.minTemp}-${p.maxTemp}°C, bảo quản ${p.shelfHours}h`).join('\n')}
+- Tuyến phổ biến: Đắk Lắk → Hà Nội, Đà Lạt → TP.HCM.
 
 CÁCH TRẢ LỜI:
-- Nếu khách chào hỏi: Chào lại thân thiện, giới thiệu ngắn về AgroCold.
-- Nếu khách hỏi thông tin chung: Trả lời tự nhiên, không bắt buộc phải có sản phẩm/khối lượng.
-- Nếu khách muốn đặt hàng: Thu thập đủ 3 thông tin: loại nông sản, khối lượng (kg), tuyến (điểm lấy → điểm giao). Sau đó tính toán và trả lời theo format:
-  "Với [khối lượng]kg [loại nông sản], bạn cần [số thùng] thùng. Nhiệt độ khuyến nghị [min]-[max]°C. Tuyến [A] → [B]. Chi phí dự kiến: [giá]đ. Bạn có muốn đặt ngay không?"
-- Nếu khách hỏi loại nông sản chưa có trong danh sách (như cà phê, hồ tiêu): Trả lời rằng AgroCold đang mở rộng, hiện chưa hỗ trợ loại này, đề xuất liên hệ hotline.
-- Nếu khách hỏi về đơn hàng cũ: Dùng dữ liệu đơn hàng thực ở dưới (nếu có).
+- Khách chào: Chào lại thân thiện.
+- Khách hỏi chung: Trả lời tự nhiên.
+- Khách muốn đặt: Thu thập sản phẩm + khối lượng + tuyến. Trả lời:
+  "Với [X]kg [sản phẩm], bạn cần [N] thùng. Nhiệt độ [min]-[max]°C. Chi phí: [giá]đ. Bạn muốn đặt ngay không?"
+- Khách hỏi loại chưa hỗ trợ (cà phê, hồ tiêu): Trả lời AgroCold chưa hỗ trợ.
+- Khách hỏi đơn hàng: Dùng dữ liệu đơn hàng ở dưới (nếu có).
 
-QUAN TRỌNG: Chỉ trả lời bằng tiếng Việt, ngắn gọn (2-4 câu), tự nhiên, không lan man.`;
+QUAN TRỌNG: Chỉ trả lời tiếng Việt, ngắn gọn 2-4 câu, tự nhiên.`;
 
 export default async function handler(req, res) {
-  // Cho phép CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   const { message, history = [], orderContext = '' } = req.body;
   const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
+    console.error('Missing GEMINI_API_KEY');
     return res.status(500).json({ error: 'Server chưa cấu hình GEMINI_API_KEY' });
   }
 
   try {
     const systemPromptWithOrder = orderContext
-      ? `${SYSTEM_PROMPT}\n\nDỮ LIỆU ĐƠN HÀNG THỰC CỦA KHÁCH:\n${orderContext}`
+      ? `${SYSTEM_PROMPT}\n\nDỮ LIỆU ĐƠN HÀNG THỰC:\n${orderContext}`
       : SYSTEM_PROMPT;
 
+    // Format cho Gemini API
+    const contents = [
+      ...history.map(m => ({
+        role: m.role === 'user' ? 'user' : 'model',
+        parts: [{ text: m.parts?.[0]?.text || m.text || '' }],
+      })),
+      { role: 'user', parts: [{ text: message }] },
+    ];
+
+    // DÙNG HEADER x-goog-api-key THAY VÌ ?key=
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,  // <-- QUAN TRỌNG: Dùng header, không dùng query string
+        },
         body: JSON.stringify({
           systemInstruction: {
             parts: [{ text: systemPromptWithOrder }],
           },
-          contents: [
-            ...history,
-            { role: 'user', parts: [{ text: message }] },
-          ],
+          contents,
           generationConfig: {
             temperature: 0.8,
             maxOutputTokens: 300,
@@ -85,16 +90,16 @@ export default async function handler(req, res) {
     const data = await response.json();
 
     if (!response.ok) {
-      console.error('Gemini API error:', data);
+      console.error('Gemini API error:', response.status, JSON.stringify(data));
       return res.status(response.status).json({
-        error: data.error?.message || 'Lỗi Gemini API',
+        error: data.error?.message || `Lỗi Gemini API (${response.status})`,
       });
     }
 
     const aiText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
     return res.status(200).json({ text: aiText.trim() });
   } catch (error) {
-    console.error('Server error:', error);
-    return res.status(500).json({ error: 'Lỗi kết nối Gemini' });
+    console.error('Server error:', error.message, error.stack);
+    return res.status(500).json({ error: 'Lỗi kết nối Gemini: ' + error.message });
   }
 }
