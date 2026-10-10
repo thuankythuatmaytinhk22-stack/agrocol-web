@@ -40,9 +40,9 @@ function localExtract(text) {
 
 /**
  * Gọi API Route nội bộ /api/chat (Vercel Serverless Function)
- * -> Server gọi Gemini, key không bị lộ ra frontend
+ * -> Server gọi Groq AI, key không bị lộ ra frontend
  */
-async function geminiChat(userText, prevSlots, chatHistory = []) {
+async function callAI(userText, prevSlots, chatHistory = []) {
   // Tra cứu đơn hàng nếu user hỏi về đơn
   let orderContext = '';
   const phoneInText = userText.match(PHONE_RE);
@@ -66,7 +66,7 @@ async function geminiChat(userText, prevSlots, chatHistory = []) {
   }
 
   try {
-    const res = await fetch('/api/chat', {
+    const res = await fetch(`${window.location.origin}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -133,8 +133,8 @@ export async function answerChat(userText, prevSlots = {}, chatHistory = []) {
     customer_phone: local.customer_phone || prevSlots.customer_phone || '',
   };
 
-  // 2. Gọi Gemini qua API Route (ưu tiên)
-  const aiText = await geminiChat(userText, merged, chatHistory);
+  // 2. Gọi AI qua API Route (ưu tiên)
+  const aiText = await callAI(userText, merged, chatHistory);
   if (aiText) {
     const quote = quoteFromSlots(merged);
     return {
@@ -145,8 +145,8 @@ export async function answerChat(userText, prevSlots = {}, chatHistory = []) {
     };
   }
 
-  // 3. Fallback local (chỉ khi Gemini fail)
-  console.warn('Gemini không phản hồi, dùng fallback local');
+  // 3. Fallback local (chỉ khi AI fail)
+  console.warn('AI không phản hồi, dùng fallback local');
   const lower = userText.toLowerCase();
 
   if (/xin chào|hello|hi\b|chào|bạn là ai|giới thiệu/i.test(lower) && !merged.weight) {

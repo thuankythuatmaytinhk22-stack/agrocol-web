@@ -1,5 +1,5 @@
 // api/chat.js — Vercel Serverless Function
-// Dùng Gemini 2.5 Flash với key AQ. qua header
+// Dùng Groq (miễn phí, nhanh, không cần thẻ tín dụng)
 
 const PRODUCT_CATALOG = [
   { name: 'Sầu riêng', minTemp: 13, maxTemp: 15, shelfHours: 36, note: 'Nhạy cảm với nhiệt độ cao' },
@@ -43,11 +43,11 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   const { message, history = [], orderContext = '' } = req.body;
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GROQ_API_KEY;
 
   if (!apiKey) {
-    console.error('Missing GEMINI_API_KEY');
-    return res.status(500).json({ error: 'Server chưa cấu hình GEMINI_API_KEY' });
+    console.error('Missing GROQ_API_KEY');
+    return res.status(500).json({ error: 'Server chưa cấu hình GROQ_API_KEY' });
   }
 
   try {
@@ -55,51 +55,42 @@ export default async function handler(req, res) {
       ? `${SYSTEM_PROMPT}\n\nDỮ LIỆU ĐƠN HÀNG THỰC:\n${orderContext}`
       : SYSTEM_PROMPT;
 
-    // Format cho Gemini API
-    const contents = [
+    const messages = [
+      { role: 'system', content: systemPromptWithOrder },
       ...history.map(m => ({
-        role: m.role === 'user' ? 'user' : 'model',
-        parts: [{ text: m.parts?.[0]?.text || m.text || '' }],
+        role: m.role === 'user' ? 'user' : 'assistant',
+        content: m.parts?.[0]?.text || m.text || '',
       })),
-      { role: 'user', parts: [{ text: message }] },
+      { role: 'user', content: message },
     ];
 
-    // DÙNG HEADER x-goog-api-key THAY VÌ ?key=
-    const response = await fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': apiKey,  // <-- QUAN TRỌNG: Dùng header, không dùng query string
-        },
-        body: JSON.stringify({
-          systemInstruction: {
-            parts: [{ text: systemPromptWithOrder }],
-          },
-          contents,
-          generationConfig: {
-            temperature: 0.8,
-            maxOutputTokens: 300,
-            topP: 0.95,
-          },
-        }),
-      }
-    );
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        messages,
+        temperature: 0.8,
+        max_tokens: 300,
+      }),
+    });
 
     const data = await response.json();
 
     if (!response.ok) {
-      console.error('Gemini API error:', response.status, JSON.stringify(data));
+      console.error('Groq API error:', response.status, JSON.stringify(data));
       return res.status(response.status).json({
-        error: data.error?.message || `Lỗi Gemini API (${response.status})`,
+        error: data.error?.message || `Lỗi Groq (${response.status})`,
       });
     }
 
-    const aiText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const aiText = data?.choices?.[0]?.message?.content || '';
     return res.status(200).json({ text: aiText.trim() });
   } catch (error) {
     console.error('Server error:', error.message, error.stack);
-    return res.status(500).json({ error: 'Lỗi kết nối Gemini: ' + error.message });
+    return res.status(500).json({ error: 'Lỗi kết nối: ' + error.message });
   }
 }
