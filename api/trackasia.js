@@ -25,17 +25,34 @@ export default async function handler(req, res) {
     }
 
     const data = JSON.parse(rawText);
-    // TrackAsia trả về GeoJSON: { type: "FeatureCollection", features: [...] }
-    // Chuyển thành mảng đơn giản cho frontend
-    const results = (data.features || []).map((f) => ({
-      name: f.properties?.name || f.properties?.address || '',
-      address: f.properties?.address || '',
-      lat: f.geometry?.coordinates?.[1] || null,
-      lng: f.geometry?.coordinates?.[0] || null,
-      ref_id: f.properties?.id || '',
-      city: f.properties?.city || '',
-      district: f.properties?.district || '',
-    }));
+    const results = (data.features || []).map((f) => {
+      const p = f.properties || {};
+      const geo = f.geometry || {};
+
+      // Xây dựng địa chỉ đầy đủ từ các trường có sẵn
+      const addressParts = [
+        p.housenumber,
+        p.street,
+        p.ward || p["phường"],
+        p.district || p["quận"],
+        p.city || p["thành phố"],
+        p.country,
+      ].filter(Boolean);
+
+      const fullAddress = p.address || addressParts.join(', ');
+
+      return {
+        name: p.name || p.street || p.address || '',
+        full_name: fullAddress || p.name || '',
+        address: fullAddress,
+        lat: geo.coordinates?.[1] || null,
+        lng: geo.coordinates?.[0] || null,
+        ref_id: p.id || '',
+        city: p.city || '',
+        district: p.district || '',
+        ward: p.ward || '',
+      };
+    });
 
     return res.status(200).json(results);
   } catch (error) {

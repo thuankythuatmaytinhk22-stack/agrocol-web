@@ -34,6 +34,7 @@ export default function LocationPicker({ value, onChange, label = 'Chọn vị t
   const [searching, setSearching] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const debounceRef = useRef(null);
+  const selectingRef = useRef(false); // Cờ đánh dấu đang chọn
 
   const handlePick = (lat, lng, address = null) => {
     setPosition([lat, lng]);
@@ -50,6 +51,9 @@ export default function LocationPicker({ value, onChange, label = 'Chọn vị t
     }
 
     debounceRef.current = setTimeout(async () => {
+      // Nếu đang chọn suggestion thì không search lại
+      if (selectingRef.current) return;
+
       setSearching(true);
       try {
         const res = await fetch(
@@ -57,7 +61,7 @@ export default function LocationPicker({ value, onChange, label = 'Chọn vị t
         );
         const data = await res.json();
         if (Array.isArray(data)) {
-          setSuggestions(data.slice(0, 6));
+          setSuggestions(data.slice(0, 8));
           setShowDropdown(true);
         } else {
           setSuggestions([]);
@@ -74,11 +78,22 @@ export default function LocationPicker({ value, onChange, label = 'Chọn vị t
   }, [searchQuery]);
 
   const handleSelectSuggestion = (s) => {
-    if (s.lat && s.lng) {
-      handlePick(parseFloat(s.lat), parseFloat(s.lng), s.address || s.name);
-      setSearchQuery(s.address || s.name);
-    }
+    // Đánh dấu đang chọn để không trigger search
+    selectingRef.current = true;
     setShowDropdown(false);
+    setSuggestions([]);
+
+    if (s.lat && s.lng) {
+      // Ưu tiên full_name > address > name
+      const displayAddress = s.full_name || s.address || s.name;
+      handlePick(parseFloat(s.lat), parseFloat(s.lng), displayAddress);
+      setSearchQuery(displayAddress);
+    }
+
+    // Reset cờ sau khi đã chọn xong
+    setTimeout(() => {
+      selectingRef.current = false;
+    }, 500);
   };
 
   return (
@@ -90,8 +105,7 @@ export default function LocationPicker({ value, onChange, label = 'Chọn vị t
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          onFocus={() => suggestions.length > 0 && setShowDropdown(true)}
-          onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
+          onFocus={() => suggestions.length > 0 && !selectingRef.current && setShowDropdown(true)}
           placeholder="Tìm địa chỉ (VD: 43 Diên Hồng, Đà Nẵng)"
           className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-agro-dark text-agro-dark font-medium"
         />
@@ -102,16 +116,34 @@ export default function LocationPicker({ value, onChange, label = 'Chọn vị t
         )}
 
         {showDropdown && suggestions.length > 0 && (
-          <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-[1000] max-h-64 overflow-y-auto">
+          <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-[1000] max-h-72 overflow-y-auto">
             {suggestions.map((s, i) => (
               <button
                 key={i}
                 type="button"
+                onMouseDown={(e) => e.preventDefault()} // Ngăn blur khi click
                 onClick={() => handleSelectSuggestion(s)}
-                className="w-full text-left px-4 py-2.5 hover:bg-green-50 border-b border-gray-50 last:border-0 transition-colors"
+                className="w-full text-left px-4 py-3 hover:bg-green-50 border-b border-gray-50 last:border-0 transition-colors flex items-start gap-3"
               >
-                <p className="text-sm font-semibold text-agro-dark truncate">{s.name}</p>
-                <p className="text-xs text-gray-500 truncate">{s.address}</p>
+                <span className="text-agro-dark mt-0.5 flex-shrink-0">📍</span>
+                <div className="flex-1 min-w-0">
+                  {/* Tên địa chỉ đầy đủ - dòng 1 */}
+                  <p className="text-sm font-bold text-agro-dark truncate">
+                    {s.full_name || s.name}
+                  </p>
+                  {/* Địa chỉ chi tiết (quận/huyện/tỉnh) - dòng 2 */}
+                  {s.address && s.address !== s.full_name && (
+                    <p className="text-xs text-gray-500 truncate mt-0.5">
+                      {s.address}
+                    </p>
+                  )}
+                  {/* Hiển thị quận/tỉnh nếu có */}
+                  {(s.district || s.city) && !s.address && (
+                    <p className="text-xs text-gray-500 truncate mt-0.5">
+                      {[s.district, s.city].filter(Boolean).join(', ')}
+                    </p>
+                  )}
+                </div>
               </button>
             ))}
           </div>
