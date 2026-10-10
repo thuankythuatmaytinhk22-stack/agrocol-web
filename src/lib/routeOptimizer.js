@@ -75,6 +75,7 @@ function buildStops(orders) {
   });
 }
 
+// Thuật toán Greedy: chọn điểm gần nhất, ưu tiên hàng dễ hỏng
 function greedyRoute(stops) {
   const picked = new Set();
   const remaining = [...stops];
@@ -100,6 +101,34 @@ function greedyRoute(stops) {
   return path;
 }
 
+// Thuật toán 2-opt: cải thiện lộ trình sau Greedy
+function twoOptImprove(path) {
+  let improved = true;
+  let bestPath = [...path];
+  let bestDist = routeStats(bestPath).km;
+
+  while (improved) {
+    improved = false;
+    for (let i = 1; i < bestPath.length - 2; i++) {
+      for (let j = i + 1; j < bestPath.length - 1; j++) {
+        const newPath = [
+          ...bestPath.slice(0, i),
+          ...bestPath.slice(i, j + 1).reverse(),
+          ...bestPath.slice(j + 1),
+        ];
+        const newDist = routeStats(newPath).km;
+        if (newDist < bestDist) {
+          bestPath = newPath;
+          bestDist = newDist;
+          improved = true;
+        }
+      }
+    }
+  }
+  return bestPath;
+}
+
+// Lộ trình FIFO (cũ, không tối ưu)
 function fifoRoute(stops) {
   const path = [{ ...HUB, kind: 'hub', label: HUB.name, id: 'hub' }];
   const byOrder = [];
@@ -117,8 +146,22 @@ function fifoRoute(stops) {
   return path;
 }
 
-export function optimizeRoutes(orders = []) {
-  const active = orders.filter((o) => ['pending', 'packed', 'shipping'].includes(o.status));
+// LỌC ĐƠN HÀNG THEO NGÀY
+export function filterOrdersByDate(orders, dateStr) {
+  if (!dateStr) return orders; // Nếu không chọn ngày -> lấy tất cả
+  return orders.filter(o => {
+    if (!o.send_date) return false;
+    // send_date có thể ở dạng "2026-10-10" hoặc ISO
+    const orderDate = o.send_date.split('T')[0]; // Lấy phần YYYY-MM-DD
+    return orderDate === dateStr;
+  });
+}
+
+export function optimizeRoutes(orders = [], filterDate = null) {
+  // Lọc theo ngày nếu có
+  const filtered = filterDate ? filterOrdersByDate(orders, filterDate) : orders;
+  const active = filtered.filter((o) => ['pending', 'packed', 'shipping'].includes(o.status));
+
   if (!active.length) {
     return {
       empty: true,
@@ -126,13 +169,18 @@ export function optimizeRoutes(orders = []) {
       next: { points: [HUB], ...routeStats([HUB]) },
       savedKm: 0,
       savedMinutes: 0,
+      count: 0,
     };
   }
+
   const stops = buildStops(active);
   const oldPath = fifoRoute(stops);
-  const newPath = greedyRoute(stops);
+  const greedyPath = greedyRoute(stops);
+  const newPath = twoOptImprove(greedyPath); // Cải thiện bằng 2-opt
+
   const old = { points: oldPath, ...routeStats(oldPath) };
   const next = { points: newPath, ...routeStats(newPath) };
+
   return {
     empty: false,
     count: active.length,
