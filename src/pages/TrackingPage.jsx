@@ -1,17 +1,20 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getOrderByCode, subscribeToOrder } from '../services/orderService';
-import { Package, Truck, CheckCircle, MapPin, Thermometer, X, Eye } from 'lucide-react';
+import { Package, Truck, MapPin, Thermometer, X, Eye, AlertTriangle } from 'lucide-react';
+import { simulateColdTelemetry } from '../lib/coldChain';
+import TempSparkline from '../components/ai/TempSparkline';
 
 export default function TrackingPage() {
   const { orderCode } = useParams();
   const [order, setOrder] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => Boolean(orderCode));
   const [searchCode, setSearchCode] = useState(orderCode || '');
   const [showDetail, setShowDetail] = useState(false);
+  const [telemetry, setTelemetry] = useState(null);
 
   useEffect(() => {
-    if (!orderCode) { setLoading(false); return; }
+    if (!orderCode) return;
     
     const fetchOrder = async () => {
       try {
@@ -30,6 +33,14 @@ export default function TrackingPage() {
     });
     return () => subscription.unsubscribe();
   }, [orderCode]);
+
+  useEffect(() => {
+    if (!order) return;
+    const tick = () => setTelemetry(simulateColdTelemetry(order));
+    tick();
+    const t = setInterval(tick, 4000);
+    return () => clearInterval(t);
+  }, [order]);
 
   const steps = [
     { key: 'pending', label: 'Đã đặt', icon: Package },
@@ -112,10 +123,54 @@ export default function TrackingPage() {
               <p className="text-sm text-gray-600 mb-1 font-medium">SĐT: {order.driver_phone || '+84905xxxxxxx'}</p>
               <div className="mt-4 pt-4 border-t border-green-200 flex items-center gap-2 text-agro-dark">
                 <Thermometer className="w-5 h-5" />
-                <span className="font-bold">Nhiệt độ: {order.temperature}°C (13-15°C)</span>
+                <span className="font-bold">
+                  Nhiệt độ: {telemetry?.currentTemp ?? order.temperature}°C ({telemetry?.rangeLabel || '13-15°C'})
+                </span>
               </div>
             </div>
           </div>
+
+          {order.status !== 'shipping' && order.status !== 'packed' && (
+            <p className="mt-6 text-xs text-gray-400 font-medium">
+              Đặt trạng thái «Đang vận chuyển» ở trang Quản trị để xem dự đoán nhiệt độ và cảnh báo hư hỏng.
+            </p>
+          )}
+
+          {telemetry && (
+            <div
+              className={`mt-8 rounded-2xl p-6 border ${
+                telemetry.level === 'critical'
+                  ? 'bg-red-50 border-red-100'
+                  : telemetry.level === 'warning'
+                    ? 'bg-amber-50 border-amber-100'
+                    : 'bg-green-50 border-green-100'
+              }`}
+            >
+              <div className="flex items-start gap-3 mb-3">
+                <AlertTriangle className={`w-5 h-5 mt-0.5 ${telemetry.level === 'ok' ? 'text-agro-green' : 'text-amber-600'}`} />
+                <div>
+                  <p className="font-bold text-agro-dark">{telemetry.title}</p>
+                  <p className="text-sm text-gray-600 font-medium mt-1">{telemetry.advice}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3 mb-3 text-center">
+                <div className="bg-white/80 rounded-xl py-3">
+                  <p className="text-xs text-gray-500">Hiện tại</p>
+                  <p className="font-extrabold text-agro-dark">{telemetry.currentTemp}°C</p>
+                </div>
+                <div className="bg-white/80 rounded-xl py-3">
+                  <p className="text-xs text-gray-500">Dự đoán 30 phút</p>
+                  <p className="font-extrabold text-agro-dark">{telemetry.predicted30}°C</p>
+                </div>
+                <div className="bg-white/80 rounded-xl py-3">
+                  <p className="text-xs text-gray-500">Xác suất hư</p>
+                  <p className="font-extrabold text-agro-dark">{Math.round(telemetry.risk * 100)}%</p>
+                </div>
+              </div>
+              <TempSparkline points={telemetry.forecast} minTemp={telemetry.product.minTemp} maxTemp={telemetry.product.maxTemp} />
+              <p className="text-[11px] text-gray-400 font-medium">Đường nhiệt 20 phút trước → 30 phút tới · vùng xanh là dải an toàn</p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -146,7 +201,9 @@ export default function TrackingPage() {
                 </div>
                 <div>
                   <p className="text-sm text-gray-500 font-medium">Trạng thái nhiệt độ</p>
-                  <p className="font-bold text-agro-green">Within Range · 13–15°C</p>
+                  <p className={`font-bold ${telemetry?.inRange ? 'text-agro-green' : 'text-amber-600'}`}>
+                    {telemetry?.inRange ? 'Within Range' : 'Out of range'} · {telemetry?.rangeLabel || '13–15°C'}
+                  </p>
                 </div>
               </div>
             </div>

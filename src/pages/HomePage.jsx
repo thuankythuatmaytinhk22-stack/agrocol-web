@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Truck, Recycle, QrCode, Thermometer } from 'lucide-react';
+import { Truck, Recycle, QrCode, Thermometer, Sparkles } from 'lucide-react';
 
 export default function HomePage() {
   return (
@@ -35,11 +35,12 @@ export default function HomePage() {
       {/* Features */}
       <section className="max-w-7xl mx-auto px-4 py-16">
         <h2 className="text-3xl font-bold text-agro-dark mb-8">Một hành trình tươi hơn</h2>
-        <div className="grid md:grid-cols-3 gap-6">
+        <div className="grid md:grid-cols-4 gap-6">
           {[
             { icon: Thermometer, title: 'Giữ nhiệt', desc: 'Duy trì nhiệt độ phù hợp cho nông sản' },
             { icon: Recycle, title: 'Thùng lạnh tái sử dụng', desc: 'Thu hồi và tái vận hành' },
             { icon: QrCode, title: 'QR Freshness Passport', desc: 'Theo dõi thông tin lô hàng' },
+            { icon: Sparkles, title: 'Tư vấn AI', desc: 'Gợi ý số thùng, nhiệt độ và chi phí ngay góc phải' },
           ].map((f, i) => (
             <div key={i} className="bg-white p-6 rounded-2xl shadow-sm hover:shadow-md transition-shadow border border-gray-100">
               <div className="w-14 h-14 bg-green-50 rounded-xl flex items-center justify-center mb-4">

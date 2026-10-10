@@ -1,32 +1,60 @@
 import { useState } from 'react';
 import { createOrder } from '../services/orderService';
 import { CheckCircle } from 'lucide-react';
+import { calcBoxes, calcCost, matchProduct } from '../lib/coldChain';
+
+const EMPTY_FORM = {
+  customer_name: '',
+  customer_phone: '',
+  product_type: '',
+  weight: '',
+  send_date: '',
+  pickup_address: '',
+  delivery_address: '',
+};
+
+function takeBookingDraft() {
+  try {
+    const raw = sessionStorage.getItem('agrocold_booking_draft');
+    if (!raw) return null;
+    sessionStorage.removeItem('agrocold_booking_draft');
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
 
 export default function BookingPage() {
-  const [formData, setFormData] = useState({
-    customer_name: '',
-    customer_phone: '',
-    product_type: '',
-    weight: '',
-    send_date: '',
-    pickup_address: '',
-    delivery_address: '',
+  const [boot] = useState(() => {
+    const draft = takeBookingDraft();
+    if (!draft) return { formData: EMPTY_FORM, boxes: 0, cost: 0 };
+    const formData = {
+      ...EMPTY_FORM,
+      customer_name: draft.customer_name || '',
+      customer_phone: draft.customer_phone || '',
+      product_type: draft.product_type || '',
+      weight: draft.weight || '',
+      pickup_address: draft.pickup_address || '',
+      delivery_address: draft.delivery_address || '',
+    };
+    const boxes = calcBoxes(draft.weight);
+    return { formData, boxes, cost: calcCost(boxes) };
   });
-  const [boxes, setBoxes] = useState(0);
-  const [cost, setCost] = useState(0);
+  const [formData, setFormData] = useState(boot.formData);
+  const [boxes, setBoxes] = useState(boot.boxes);
+  const [cost, setCost] = useState(boot.cost);
   const [successBoxes, setSuccessBoxes] = useState(0);
   const [isSuccess, setIsSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
+  const product = matchProduct(formData.product_type);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-    
+    setFormData((prev) => ({ ...prev, [name]: value }));
     if (name === 'weight') {
-      const weightValue = parseFloat(value || 0);
-      const calculatedBoxes = Math.ceil(weightValue / 250);
+      const calculatedBoxes = calcBoxes(value);
       setBoxes(calculatedBoxes);
-      setCost(calculatedBoxes * 250000);
+      setCost(calcCost(calculatedBoxes));
     }
   };
 
@@ -93,7 +121,7 @@ export default function BookingPage() {
                 <div className="w-full bg-green-50 border border-green-100 rounded-xl px-4 py-3 text-agro-dark font-bold text-lg">
                   {boxes > 0 ? `${boxes} thùng` : 'Chưa xác định'}
                 </div>
-                <p className="text-xs text-gray-400 mt-1">Ước tính theo định mức 250 kg/thùng</p>
+                <p className="text-xs text-gray-400 mt-1">Ước tính theo định mức 250 kg/thùng · {product.name}</p>
               </div>
               <div>
                 <label className="block text-sm font-semibold mb-2 text-agro-dark">Điểm lấy hàng</label>
@@ -132,9 +160,9 @@ export default function BookingPage() {
             </div>
             <div className="bg-green-50 rounded-2xl p-6 border border-green-100">
               <div className="flex items-center gap-2 text-agro-dark font-bold mb-1">
-                <span>🌡️</span> Nhiệt độ mục tiêu: 13–15°C
+                <span>🌡️</span> Nhiệt độ mục tiêu: {product.minTemp}–{product.maxTemp}°C
               </div>
-              <p className="text-sm text-gray-500 font-medium">Cấu hình làm lạnh: AgroCold đề xuất</p>
+              <p className="text-sm text-gray-500 font-medium">{product.note}</p>
             </div>
           </div>
         </div>

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { getOrdersByPhone, cancelOrder } from '../services/orderService';
 import { Search, XCircle, CheckCircle, Package, QrCode, Recycle, Truck, MapPin } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
+import { simulateColdTelemetry } from '../lib/coldChain';
 
 export default function BoxManagementPage() {
   const [searchPhone, setSearchPhone] = useState('');
@@ -101,6 +102,7 @@ export default function BoxManagementPage() {
               {orders.map((order) => {
                 const statusOrder = ['pending', 'packed', 'shipping', 'delivered'];
                 const currentIndex = statusOrder.indexOf(order.status);
+                const tel = simulateColdTelemetry(order);
                 
                 return (
                   <div key={order.id} className="grid lg:grid-cols-2 gap-6">
@@ -133,9 +135,9 @@ export default function BoxManagementPage() {
                         <div className="flex-1 min-w-0">
                           <h4 className="text-lg font-bold text-agro-dark mb-1">Thùng {order.order_code}</h4>
                           <p className="text-gray-600 text-sm mb-1 font-medium">{order.product_type}</p>
-                          <p className="text-gray-600 text-sm mb-1 font-medium">Nhiệt độ mục tiêu: 13-15°C</p>
-                          <p className="text-sm font-bold text-agro-dark">
-                            Temperature Status: Within Range
+                          <p className="text-gray-600 text-sm mb-1 font-medium">Nhiệt độ mục tiêu: {tel.rangeLabel}</p>
+                          <p className={`text-sm font-bold ${tel.inRange ? 'text-agro-dark' : 'text-amber-600'}`}>
+                            {tel.inRange ? 'Within Range' : 'Cần kiểm tra'} · {tel.currentTemp}°C
                           </p>
                         </div>
                       </div>

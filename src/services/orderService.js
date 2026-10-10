@@ -1,9 +1,11 @@
 import { supabase } from '../lib/supabaseClient';
+import { calcBoxes, matchProduct } from '../lib/coldChain';
 
 export const createOrder = async (orderData) => {
   // ÉP KIỂU SỐ CHO WEIGHT ĐỂ TRÁNH LỖI TÍNH TOÁN
   const weight = parseFloat(orderData.weight);
-  const boxes = Math.ceil(weight / 250);
+  const boxes = calcBoxes(weight);
+  const product = matchProduct(orderData.product_type);
   const orderCode = `AC-${new Date().getFullYear()}-${Math.floor(10000 + Math.random() * 90000)}`;
 
   const { data: order, error: orderError } = await supabase
@@ -14,7 +16,7 @@ export const createOrder = async (orderData) => {
       boxes,
       order_code: orderCode,
       status: 'pending',
-      temperature: 15
+      temperature: product.minTemp
     }])
     .select()
     .single();
@@ -25,8 +27,8 @@ export const createOrder = async (orderData) => {
     box_code: `${orderCode}-B${i + 1}`,
     order_id: order.id,
     product_type: orderData.product_type,
-    target_temp: '13-15°C',
-    current_temp: 15,
+    target_temp: `${product.minTemp}-${product.maxTemp}°C`,
+    current_temp: product.minTemp,
     status: 'delivered'
   }));
 
