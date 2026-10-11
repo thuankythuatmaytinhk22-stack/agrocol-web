@@ -6,34 +6,80 @@ import HomePage from './pages/HomePage';
 import BookingPage from './pages/BookingPage';
 import TrackingPage from './pages/TrackingPage';
 import BoxManagementPage from './pages/BoxManagementPage';
-import AdminPage from './pages/AdminPage';
 import LoginPage from './pages/LoginPage';
+
+// Admin Layout + Pages
+import AdminLayout from './components/admin/AdminLayout';
+import DashboardPage from './pages/admin/DashboardPage';
+import OrdersPage from './pages/admin/OrdersPage';
+import VehiclesPage from './pages/admin/VehiclesPage';
+import DriversPage from './pages/admin/DriversPage';
+import DispatchPage from './pages/admin/DispatchPage';
+import BoxesPage from './pages/admin/BoxesPage';
 
 // Component bảo vệ Admin
 function ProtectedAdmin() {
   const isAdmin = localStorage.getItem('isAdmin') === 'true';
-  return isAdmin ? <AdminPage /> : <LoginPage />;
+  return isAdmin ? <AdminLayout /> : <LoginPage />;
+}
+
+// Trang chưa làm
+function ComingSoon({ title }) {
+  return (
+    <div className="flex items-center justify-center h-96">
+      <div className="text-center">
+        <div className="text-6xl mb-4">🚧</div>
+        <h2 className="text-2xl font-bold text-agro-dark mb-2">{title}</h2>
+        <p className="text-gray-500 text-sm">Trang này đang được phát triển...</p>
+      </div>
+    </div>
+  );
 }
 
 function App() {
   return (
     <Router>
-      <div className="flex flex-col min-h-screen">
-        <Header />
-        <main className="flex-grow">
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/booking" element={<BookingPage />} />
-            <Route path="/tracking" element={<TrackingPage />} />
-            <Route path="/tracking/:orderCode" element={<TrackingPage />} />
-            <Route path="/box-management" element={<BoxManagementPage />} />
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/admin" element={<ProtectedAdmin />} />
-          </Routes>
-        </main>
-        <Footer />
-        <ChatWidget />
-      </div>
+      <Routes>
+        {/* === ADMIN ROUTES === */}
+        <Route path="/admin" element={<ProtectedAdmin />}>
+          <Route index element={<DashboardPage />} />
+          <Route path="orders" element={<OrdersPage />} />
+          <Route path="vehicles" element={<VehiclesPage />} />
+          <Route path="drivers" element={<DriversPage />} />
+          <Route path="dispatch" element={<DispatchPage />} />
+          <Route path="boxes" element={<BoxesPage />} />
+          <Route
+            path="reports"
+            element={<ComingSoon title="Báo cáo & Thống kê" />}
+          />
+          <Route
+            path="settings"
+            element={<ComingSoon title="Cài đặt hệ thống" />}
+          />
+        </Route>
+
+        {/* === PUBLIC ROUTES (có Header + Footer + ChatWidget) === */}
+        <Route
+          path="*"
+          element={
+            <div className="flex flex-col min-h-screen">
+              <Header />
+              <main className="flex-grow">
+                <Routes>
+                  <Route path="/" element={<HomePage />} />
+                  <Route path="/booking" element={<BookingPage />} />
+                  <Route path="/tracking" element={<TrackingPage />} />
+                  <Route path="/tracking/:orderCode" element={<TrackingPage />} />
+                  <Route path="/box-management" element={<BoxManagementPage />} />
+                  <Route path="/login" element={<LoginPage />} />
+                </Routes>
+              </main>
+              <Footer />
+              <ChatWidget />
+            </div>
+          }
+        />
+      </Routes>
     </Router>
   );
 }
