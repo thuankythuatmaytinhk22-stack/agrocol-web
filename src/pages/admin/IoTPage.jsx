@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import useIoTSensor from '../../hooks/useIoTSensor';
 import TempSparkline from '../../components/admin/TempSparkline';
 import {
@@ -19,16 +20,21 @@ import {
   Bell,
   Zap,
   Snowflake,
+  Package,
+  MapPin,
+  ArrowRight,
+  Truck,
 } from 'lucide-react';
 
 export default function IoTPage() {
-  const { latest, history, status, loading, error, deviceId } = useIoTSensor();
+  const { latest, history, shippingOrders, status, loading, error, deviceId } =
+    useIoTSensor();
   const [alerts, setAlerts] = useState([]);
   const [alertLoading, setAlertLoading] = useState(true);
 
   useEffect(() => {
     loadAlerts();
-    const interval = setInterval(loadAlerts, 15000); // refresh alerts mỗi 15s
+    const interval = setInterval(loadAlerts, 15000);
     return () => clearInterval(interval);
   }, []);
 
@@ -82,7 +88,8 @@ export default function IoTPage() {
         <div>
           <p className="font-bold text-amber-800">Chưa nhận được dữ liệu</p>
           <p className="text-sm text-amber-600 mt-1">
-            Đảm bảo thiết bị ESP32-C3 đã kết nối WiFi "Thu van 1" và đang gửi dữ liệu lên Supabase.
+            Đảm bảo thiết bị ESP32-C3 đã kết nối WiFi "Thu van 1" và đang gửi
+            dữ liệu lên Supabase.
           </p>
         </div>
       </div>
@@ -114,8 +121,10 @@ export default function IoTPage() {
   }[status?.level || 'ideal'];
 
   const StatusIcon = statusColor.icon;
-  const secondsAgo = Math.floor((Date.now() - new Date(latest.created_at).getTime()) / 1000);
-  const isLive = secondsAgo < 60;
+  const secondsAgo = Math.floor(
+    (Date.now() - new Date(latest.created_at).getTime()) / 1000
+  );
+  const isLive = secondsAgo < 60 * 20; // 20 phút (khớp interval 15 phút)
 
   return (
     <div className="space-y-6">
@@ -133,7 +142,8 @@ export default function IoTPage() {
               }`}
             ></span>
             Thiết bị: <strong>{deviceId}</strong> ·{' '}
-            {isLive ? 'Đang hoạt động' : 'Không hoạt động'}
+            {isLive ? 'Đang hoạt động' : 'Không hoạt động'} ·{' '}
+            <strong>{shippingOrders.length}</strong> đơn đang giao
           </p>
         </div>
         <div className="text-right">
@@ -145,28 +155,34 @@ export default function IoTPage() {
       </div>
 
       {/* Main temperature card */}
-      <div className={`${statusColor.bg} ${statusColor.border} border-2 rounded-2xl p-8 relative overflow-hidden`}>
+      <div
+        className={`${statusColor.bg} ${statusColor.border} border-2 rounded-2xl p-8 relative overflow-hidden`}
+      >
         <div className="grid md:grid-cols-3 gap-6 relative z-10">
           <div className="md:col-span-2">
             <div className="flex items-center gap-3 mb-3">
-              <div className={`w-12 h-12 ${statusColor.badge} rounded-xl flex items-center justify-center`}>
+              <div
+                className={`w-12 h-12 ${statusColor.badge} rounded-xl flex items-center justify-center`}
+              >
                 <Thermometer className="w-6 h-6" />
               </div>
               <div>
                 <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">
                   Nhiệt độ hiện tại
                 </p>
-                <p className="text-sm text-gray-500">
-                  Ngưỡng an toàn: 13–15°C
-                </p>
+                <p className="text-sm text-gray-500">Ngưỡng an toàn: 13–15°C</p>
               </div>
             </div>
             <div className="flex items-end gap-4">
-              <p className={`text-7xl font-extrabold ${statusColor.text} leading-none`}>
+              <p
+                className={`text-7xl font-extrabold ${statusColor.text} leading-none`}
+              >
                 {formatTemp(latest.temperature)}
               </p>
               <div className="mb-3">
-                <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold ${statusColor.badge}`}>
+                <span
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold ${statusColor.badge}`}
+                >
                   <StatusIcon className="w-3.5 h-3.5" />
                   {status?.label}
                 </span>
@@ -186,7 +202,7 @@ export default function IoTPage() {
                 ) : (
                   <>
                     <RefreshCw className="w-4 h-4 text-blue-500" />
-                    Mô phỏng (14°C)
+                    Mô phỏng
                   </>
                 )}
               </p>
@@ -194,7 +210,7 @@ export default function IoTPage() {
             <div className="bg-white/60 backdrop-blur rounded-xl p-3">
               <p className="text-xs text-gray-500 font-semibold mb-1 flex items-center gap-1">
                 <Wifi className="w-3 h-3" />
-                Tín hiệu WiFi
+                WiFi RSSI
               </p>
               <p className="font-bold text-agro-dark text-sm">
                 {latest.wifi_rssi || '--'} dBm
@@ -204,28 +220,133 @@ export default function IoTPage() {
         </div>
       </div>
 
+      {/* Shipping orders */}
+      <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold text-agro-dark flex items-center gap-2">
+            <Truck className="w-5 h-5" />
+            Đơn hàng đang vận chuyển ({shippingOrders.length})
+          </h3>
+          {shippingOrders.length > 0 && (
+            <Link
+              to="/admin/orders"
+              className="text-xs text-blue-600 hover:text-blue-700 font-semibold flex items-center gap-1"
+            >
+              Quản lý đơn <ArrowRight className="w-3 h-3" />
+            </Link>
+          )}
+        </div>
+
+        {shippingOrders.length === 0 ? (
+          <div className="text-center py-8">
+            <Package className="w-12 h-12 text-gray-300 mx-auto mb-2" />
+            <p className="text-sm text-gray-500 font-medium">
+              Không có đơn hàng nào đang vận chuyển.
+            </p>
+            <p className="text-xs text-gray-400 mt-1">
+              Nhiệt độ hiện tại vẫn được giám sát cho các đơn tiếp theo.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {shippingOrders.map((order) => {
+              const tempStatus = order.latest_temp
+                ? getTemperatureStatusFromTemp(order.latest_temp)
+                : null;
+              const isWarning =
+                tempStatus && tempStatus.level !== 'ideal';
+
+              return (
+                <Link
+                  key={order.id}
+                  to={`/tracking/${order.order_code}`}
+                  className={`block p-4 rounded-xl border-2 transition-all hover:shadow-md ${
+                    isWarning
+                      ? 'bg-red-50 border-red-200'
+                      : 'bg-white border-gray-100 hover:border-agro-yellow'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Package className="w-4 h-4 text-agro-dark flex-shrink-0" />
+                        <p className="font-bold text-agro-dark">
+                          {order.order_code}
+                        </p>
+                        {isWarning && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-[10px] font-bold">
+                            <AlertTriangle className="w-3 h-3" />
+                            CẢNH BÁO
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-600 mb-1 flex items-center gap-1">
+                        <MapPin className="w-3 h-3" />
+                        {order.pickup_address} → {order.delivery_address}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {order.customer_name} · {order.product_type} ·{' '}
+                        {order.boxes} thùng
+                      </p>
+                    </div>
+
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-xs text-gray-500 font-semibold mb-1">
+                        Nhiệt độ
+                      </p>
+                      {order.latest_temp ? (
+                        <>
+                          <p
+                            className={`text-2xl font-extrabold ${
+                              isWarning ? 'text-red-600' : 'text-green-600'
+                            }`}
+                          >
+                            {order.latest_temp.toFixed(1)}°C
+                          </p>
+                          <p className="text-[10px] text-gray-500 mt-0.5">
+                            {formatRelativeTime(order.temp_updated_at)}
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-sm text-gray-400 italic">
+                          Chưa có dữ liệu
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
           <div className="flex items-center gap-2 mb-1">
             <div className="w-3 h-3 rounded-full bg-agro-green"></div>
-            <span className="text-xs text-gray-500 font-semibold">Ngưỡng min</span>
+            <span className="text-xs text-gray-500 font-semibold">Min</span>
           </div>
           <p className="text-2xl font-extrabold text-agro-dark">13.0°C</p>
         </div>
         <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
           <div className="flex items-center gap-2 mb-1">
             <div className="w-3 h-3 rounded-full bg-red-500"></div>
-            <span className="text-xs text-gray-500 font-semibold">Ngưỡng max</span>
+            <span className="text-xs text-gray-500 font-semibold">Max</span>
           </div>
           <p className="text-2xl font-extrabold text-agro-dark">15.0°C</p>
         </div>
         <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
           <div className="flex items-center gap-2 mb-1">
             <div className="w-3 h-3 rounded-full bg-blue-500"></div>
-            <span className="text-xs text-gray-500 font-semibold">Số mẫu 1h</span>
+            <span className="text-xs text-gray-500 font-semibold">
+              Số mẫu 6h
+            </span>
           </div>
-          <p className="text-2xl font-extrabold text-agro-dark">{history.length}</p>
+          <p className="text-2xl font-extrabold text-agro-dark">
+            {history.length}
+          </p>
         </div>
         <div
           className={`rounded-2xl p-4 border shadow-sm ${
@@ -240,7 +361,9 @@ export default function IoTPage() {
                 alerts.length > 0 ? 'bg-red-500 animate-pulse' : 'bg-gray-300'
               }`}
             ></div>
-            <span className="text-xs text-gray-500 font-semibold">Cảnh báo</span>
+            <span className="text-xs text-gray-500 font-semibold">
+              Cảnh báo
+            </span>
           </div>
           <p
             className={`text-2xl font-extrabold ${
@@ -256,10 +379,10 @@ export default function IoTPage() {
       <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-bold text-agro-dark flex items-center gap-2">
-            📈 Biểu đồ nhiệt độ 1 giờ qua
+            📈 Biểu đồ nhiệt độ 6 giờ qua
           </h3>
           <span className="text-xs text-gray-500 font-medium">
-            {history.length} điểm dữ liệu
+            {history.length} điểm
           </span>
         </div>
         <TempSparkline data={history} minTemp={13} maxTemp={15} />
@@ -309,14 +432,21 @@ export default function IoTPage() {
                     >
                       {alert.message}
                     </p>
-                    <p className="text-xs text-gray-500 mt-1 flex items-center gap-3">
+                    <p className="text-xs text-gray-500 mt-1 flex items-center gap-3 flex-wrap">
                       <span className="flex items-center gap-1">
                         <Clock className="w-3 h-3" />
                         {formatRelativeTime(alert.created_at)}
                       </span>
                       <span>
-                        Nhiệt độ: <strong>{alert.temperature.toFixed(1)}°C</strong>
+                        Nhiệt độ:{' '}
+                        <strong>{alert.temperature.toFixed(1)}°C</strong>
                       </span>
+                      {alert.order_code && (
+                        <span className="flex items-center gap-1 text-blue-600">
+                          <Package className="w-3 h-3" />
+                          {alert.order_code}
+                        </span>
+                      )}
                     </p>
                   </div>
                   <button
@@ -333,4 +463,11 @@ export default function IoTPage() {
       </div>
     </div>
   );
+}
+
+// Helper function - không import từ service vì chỉ dùng nội bộ
+function getTemperatureStatusFromTemp(temp) {
+  if (temp >= 13.0 && temp <= 15.0) return { level: 'ideal', label: 'An toàn' };
+  if (temp > 15.0) return { level: 'too_high', label: 'Quá cao' };
+  return { level: 'too_low', label: 'Quá thấp' };
 }
