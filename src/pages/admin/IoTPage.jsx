@@ -27,8 +27,17 @@ import {
 } from 'lucide-react';
 
 export default function IoTPage() {
-  const { latest, history, shippingOrders, status, loading, error, deviceId } =
-    useIoTSensor();
+  // ✅ FALLBACK: Đảm bảo history và shippingOrders luôn là mảng
+  const {
+    latest = null,
+    history = [],
+    shippingOrders = [],
+    status = null,
+    loading = true,
+    error = null,
+    deviceId = 'esp32-c3-01',
+  } = useIoTSensor() || {};
+
   const [alerts, setAlerts] = useState([]);
   const [alertLoading, setAlertLoading] = useState(true);
 
@@ -41,9 +50,10 @@ export default function IoTPage() {
   const loadAlerts = async () => {
     try {
       const data = await getUnresolvedAlerts();
-      setAlerts(data);
+      setAlerts(data || []);
     } catch (err) {
       console.error(err);
+      setAlerts([]);
     } finally {
       setAlertLoading(false);
     }
@@ -184,7 +194,7 @@ export default function IoTPage() {
                   className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold ${statusColor.badge}`}
                 >
                   <StatusIcon className="w-3.5 h-3.5" />
-                  {status?.label}
+                  {status?.label || 'An toàn'}
                 </span>
               </div>
             </div>
@@ -253,8 +263,7 @@ export default function IoTPage() {
               const tempStatus = order.latest_temp
                 ? getTemperatureStatusFromTemp(order.latest_temp)
                 : null;
-              const isWarning =
-                tempStatus && tempStatus.level !== 'ideal';
+              const isWarning = tempStatus && tempStatus.level !== 'ideal';
 
               return (
                 <Link
@@ -439,7 +448,7 @@ export default function IoTPage() {
                       </span>
                       <span>
                         Nhiệt độ:{' '}
-                        <strong>{alert.temperature.toFixed(1)}°C</strong>
+                        <strong>{alert.temperature?.toFixed(1)}°C</strong>
                       </span>
                       {alert.order_code && (
                         <span className="flex items-center gap-1 text-blue-600">
