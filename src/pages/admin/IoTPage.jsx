@@ -27,7 +27,6 @@ import {
 } from 'lucide-react';
 
 export default function IoTPage() {
-  // ✅ FALLBACK: Đảm bảo history và shippingOrders luôn là mảng
   const {
     latest = null,
     history = [],
@@ -50,7 +49,7 @@ export default function IoTPage() {
   const loadAlerts = async () => {
     try {
       const data = await getUnresolvedAlerts();
-      setAlerts(data || []);
+      setAlerts(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error(err);
       setAlerts([]);
@@ -67,6 +66,14 @@ export default function IoTPage() {
       alert('Lỗi: ' + err.message);
     }
   };
+
+  // Group alerts theo order_code
+  const alertsByOrder = alerts.reduce((acc, alert) => {
+    const key = alert.order_code || '__no_order__';
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(alert);
+    return acc;
+  }, {});
 
   if (loading) {
     return (
@@ -134,7 +141,7 @@ export default function IoTPage() {
   const secondsAgo = Math.floor(
     (Date.now() - new Date(latest.created_at).getTime()) / 1000
   );
-  const isLive = secondsAgo < 60 * 20; // 20 phút (khớp interval 15 phút)
+  const isLive = secondsAgo < 60 * 20;
 
   return (
     <div className="space-y-6">
@@ -264,6 +271,7 @@ export default function IoTPage() {
                 ? getTemperatureStatusFromTemp(order.latest_temp)
                 : null;
               const isWarning = tempStatus && tempStatus.level !== 'ideal';
+              const orderAlerts = alertsByOrder[order.order_code] || [];
 
               return (
                 <Link
@@ -286,6 +294,7 @@ export default function IoTPage() {
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-[10px] font-bold">
                             <AlertTriangle className="w-3 h-3" />
                             CẢNH BÁO
+                            {orderAlerts.length > 0 && ` (${orderAlerts.length})`}
                           </span>
                         )}
                       </div>
@@ -397,7 +406,7 @@ export default function IoTPage() {
         <TempSparkline data={history} minTemp={13} maxTemp={15} />
       </div>
 
-      {/* Alerts */}
+      {/* Alerts - Group by order */}
       <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-bold text-agro-dark flex items-center gap-2">
@@ -416,57 +425,89 @@ export default function IoTPage() {
             </p>
           </div>
         ) : (
-          <div className="space-y-2">
-            {alerts.map((alert) => {
-              const isCritical = alert.severity === 'critical';
-              return (
-                <div
-                  key={alert.id}
-                  className={`flex items-start gap-3 p-4 rounded-xl border ${
-                    isCritical
-                      ? 'bg-red-50 border-red-200'
-                      : 'bg-amber-50 border-amber-200'
-                  }`}
-                >
-                  <AlertTriangle
-                    className={`w-5 h-5 mt-0.5 flex-shrink-0 ${
-                      isCritical ? 'text-red-600' : 'text-amber-600'
-                    }`}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p
-                      className={`font-bold text-sm ${
-                        isCritical ? 'text-red-800' : 'text-amber-800'
-                      }`}
-                    >
-                      {alert.message}
-                    </p>
-                    <p className="text-xs text-gray-500 mt-1 flex items-center gap-3 flex-wrap">
-                      <span className="flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        {formatRelativeTime(alert.created_at)}
-                      </span>
-                      <span>
-                        Nhiệt độ:{' '}
-                        <strong>{alert.temperature?.toFixed(1)}°C</strong>
-                      </span>
-                      {alert.order_code && (
-                        <span className="flex items-center gap-1 text-blue-600">
-                          <Package className="w-3 h-3" />
-                          {alert.order_code}
+          <div className="space-y-4">
+            {Object.entries(alertsByOrder).map(([orderCode, orderAlerts]) => (
+              <div
+                key={orderCode}
+                className="border border-red-200 rounded-xl overflow-hidden"
+              >
+                {/* Header đơn */}
+                <div className="bg-red-50 px-4 py-3 border-b border-red-200 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    {orderCode === '__no_order__' ? (
+                      <>
+                        <AlertTriangle className="w-4 h-4 text-amber-600" />
+                        <p className="font-bold text-amber-800 text-sm">
+                          Cảnh báo chung (không có đơn đang giao)
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <Package className="w-4 h-4 text-red-600" />
+                        <p className="font-bold text-red-800 text-sm">
+                          Đơn {orderCode}
+                        </p>
+                        <span className="bg-red-200 text-red-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                          {orderAlerts.length} cảnh báo
                         </span>
-                      )}
-                    </p>
+                        <Link
+                          to={`/tracking/${orderCode}`}
+                          className="text-[10px] text-blue-600 hover:text-blue-700 font-semibold underline"
+                        >
+                          Xem chuyến hàng
+                        </Link>
+                      </>
+                    )}
                   </div>
-                  <button
-                    onClick={() => handleResolveAlert(alert.id)}
-                    className="bg-white hover:bg-gray-50 text-agro-dark text-xs font-bold px-3 py-2 rounded-lg border border-gray-200 flex-shrink-0 transition-colors"
-                  >
-                    Đã xử lý
-                  </button>
                 </div>
-              );
-            })}
+
+                {/* Danh sách cảnh báo của đơn */}
+                <div className="divide-y divide-red-100">
+                  {orderAlerts.map((alert) => {
+                    const isCritical = alert.severity === 'critical';
+                    return (
+                      <div
+                        key={alert.id}
+                        className={`flex items-start gap-3 p-4 ${
+                          isCritical ? 'bg-red-50/50' : 'bg-amber-50/50'
+                        }`}
+                      >
+                        <AlertTriangle
+                          className={`w-5 h-5 mt-0.5 flex-shrink-0 ${
+                            isCritical ? 'text-red-600' : 'text-amber-600'
+                          }`}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p
+                            className={`font-bold text-sm ${
+                              isCritical ? 'text-red-800' : 'text-amber-800'
+                            }`}
+                          >
+                            {alert.message}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-1 flex items-center gap-3 flex-wrap">
+                            <span className="flex items-center gap-1">
+                              <Clock className="w-3 h-3" />
+                              {formatRelativeTime(alert.created_at)}
+                            </span>
+                            <span>
+                              Nhiệt độ:{' '}
+                              <strong>{alert.temperature?.toFixed(1)}°C</strong>
+                            </span>
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => handleResolveAlert(alert.id)}
+                          className="bg-white hover:bg-gray-50 text-agro-dark text-xs font-bold px-3 py-2 rounded-lg border border-gray-200 flex-shrink-0 transition-colors"
+                        >
+                          Đã xử lý
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -474,7 +515,7 @@ export default function IoTPage() {
   );
 }
 
-// Helper function - không import từ service vì chỉ dùng nội bộ
+// Helper function
 function getTemperatureStatusFromTemp(temp) {
   if (temp >= 13.0 && temp <= 15.0) return { level: 'ideal', label: 'An toàn' };
   if (temp > 15.0) return { level: 'too_high', label: 'Quá cao' };
