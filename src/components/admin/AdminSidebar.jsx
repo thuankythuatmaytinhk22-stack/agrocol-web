@@ -1,4 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
 import {
   LayoutDashboard,
   Package,
@@ -11,7 +12,10 @@ import {
   LogOut,
   Leaf,
   ChevronRight,
+  Activity,
+  Bell,
 } from 'lucide-react';
+import { countUnresolvedAlerts, subscribeToAlerts } from '../../services/iotService';
 
 const menuGroups = [
   {
@@ -36,6 +40,12 @@ const menuGroups = [
     ],
   },
   {
+    title: 'GIÁM SÁT IoT',
+    items: [
+      { name: 'Nhiệt độ realtime', path: '/admin/iot', icon: Activity, badge: 'alerts' },
+    ],
+  },
+  {
     title: 'BÁO CÁO',
     items: [
       { name: 'Thống kê', path: '/admin/reports', icon: BarChart3 },
@@ -46,6 +56,21 @@ const menuGroups = [
 
 export default function AdminSidebar({ isOpen, onClose }) {
   const navigate = useNavigate();
+  const [alertCount, setAlertCount] = useState(0);
+
+  useEffect(() => {
+    // Đếm ban đầu
+    countUnresolvedAlerts()
+      .then(setAlertCount)
+      .catch(() => setAlertCount(0));
+
+    // Lắng nghe cảnh báo mới
+    const channel = subscribeToAlerts(() => {
+      setAlertCount((prev) => prev + 1);
+    });
+
+    return () => channel.unsubscribe();
+  }, []);
 
   const handleLogout = () => {
     if (window.confirm('Bạn có chắc muốn đăng xuất?')) {
@@ -56,7 +81,6 @@ export default function AdminSidebar({ isOpen, onClose }) {
 
   return (
     <>
-      {/* Overlay cho mobile */}
       {isOpen && (
         <div
           className="fixed inset-0 bg-black/50 z-40 lg:hidden"
@@ -64,7 +88,6 @@ export default function AdminSidebar({ isOpen, onClose }) {
         />
       )}
 
-      {/* Sidebar */}
       <aside
         className={`fixed lg:static top-0 left-0 h-full w-64 bg-[#1a2332] text-white z-50 flex flex-col transition-transform duration-300 ${
           isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
@@ -90,6 +113,7 @@ export default function AdminSidebar({ isOpen, onClose }) {
               </p>
               {group.items.map((item) => {
                 const Icon = item.icon;
+                const showBadge = item.badge === 'alerts' && alertCount > 0;
                 return (
                   <NavLink
                     key={item.path}
@@ -97,7 +121,7 @@ export default function AdminSidebar({ isOpen, onClose }) {
                     end={item.exact}
                     onClick={onClose}
                     className={({ isActive }) =>
-                      `flex items-center gap-3 px-5 py-2.5 text-sm font-medium transition-colors ${
+                      `flex items-center gap-3 px-5 py-2.5 text-sm font-medium transition-colors relative ${
                         isActive
                           ? 'bg-agro-yellow text-agro-dark border-l-4 border-white'
                           : 'text-white/70 hover:bg-white/5 hover:text-white border-l-4 border-transparent'
@@ -108,7 +132,12 @@ export default function AdminSidebar({ isOpen, onClose }) {
                       <>
                         <Icon className="w-4 h-4 flex-shrink-0" />
                         <span className="flex-1">{item.name}</span>
-                        {isActive && <ChevronRight className="w-3 h-3" />}
+                        {showBadge && (
+                          <span className="bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1.5">
+                            {alertCount > 99 ? '99+' : alertCount}
+                          </span>
+                        )}
+                        {isActive && !showBadge && <ChevronRight className="w-3 h-3" />}
                       </>
                     )}
                   </NavLink>

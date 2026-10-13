@@ -16,6 +16,7 @@ import VehiclesPage from './pages/admin/VehiclesPage';
 import DriversPage from './pages/admin/DriversPage';
 import DispatchPage from './pages/admin/DispatchPage';
 import BoxesPage from './pages/admin/BoxesPage';
+import IoTPage from './pages/admin/IoTPage';
 
 // Component bảo vệ Admin
 function ProtectedAdmin() {
@@ -48,6 +49,7 @@ function App() {
           <Route path="drivers" element={<DriversPage />} />
           <Route path="dispatch" element={<DispatchPage />} />
           <Route path="boxes" element={<BoxesPage />} />
+          <Route path="iot" element={<IoTPage />} />
           <Route
             path="reports"
             element={<ComingSoon title="Báo cáo & Thống kê" />}
