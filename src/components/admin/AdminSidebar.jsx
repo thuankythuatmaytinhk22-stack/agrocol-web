@@ -14,6 +14,7 @@ import {
   ChevronRight,
   Activity,
   Bell,
+  DollarSign,
 } from 'lucide-react';
 import { countUnresolvedAlerts, subscribeToAlerts } from '../../services/iotService';
 
@@ -48,6 +49,7 @@ const menuGroups = [
   {
     title: 'BÁO CÁO',
     items: [
+      { name: 'Doanh thu', path: '/admin/revenue', icon: DollarSign },
       { name: 'Thống kê', path: '/admin/reports', icon: BarChart3 },
       { name: 'Cài đặt', path: '/admin/settings', icon: Settings },
     ],
@@ -59,12 +61,10 @@ export default function AdminSidebar({ isOpen, onClose }) {
   const [alertCount, setAlertCount] = useState(0);
 
   useEffect(() => {
-    // Đếm ban đầu
     countUnresolvedAlerts()
       .then(setAlertCount)
       .catch(() => setAlertCount(0));
 
-    // Lắng nghe cảnh báo mới
     const channel = subscribeToAlerts(() => {
       setAlertCount((prev) => prev + 1);
     });
