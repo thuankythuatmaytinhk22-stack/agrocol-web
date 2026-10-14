@@ -4,6 +4,7 @@ import { supabase } from '../../lib/supabaseClient';
 import { getVehicleStats } from '../../services/vehicleService';
 import { getDriverStats } from '../../services/driverService';
 import StatCard from '../../components/admin/StatCard';
+import RevenueSection from '../../components/admin/RevenueSection';
 import {
   Package,
   Truck,
@@ -513,6 +514,11 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* === SECTION DOANH THU === */}
+      <div className="mt-6">
+        <RevenueSection />
       </div>
     </div>
   );
