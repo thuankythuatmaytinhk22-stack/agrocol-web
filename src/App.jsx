@@ -73,8 +73,14 @@ function App() {
                   <Route path="/" element={<HomePage />} />
                   <Route path="/booking" element={<BookingPage />} />
                   <Route path="/tracking" element={<TrackingPage />} />
-                  <Route path="/tracking/:orderCode" element={<TrackingPage />} />
-                  <Route path="/box-management" element={<BoxManagementPage />} />
+                  <Route
+                    path="/tracking/:orderCode"
+                    element={<TrackingPage />}
+                  />
+                  <Route
+                    path="/box-management"
+                    element={<BoxManagementPage />}
+                  />
                   <Route path="/login" element={<LoginPage />} />
                 </Routes>
               </main>

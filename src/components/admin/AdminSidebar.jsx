@@ -13,7 +13,6 @@ import {
   Leaf,
   ChevronRight,
   Activity,
-  Bell,
   DollarSign,
 } from 'lucide-react';
 import { countUnresolvedAlerts, subscribeToAlerts } from '../../services/iotService';
@@ -43,7 +42,12 @@ const menuGroups = [
   {
     title: 'GIÁM SÁT IoT',
     items: [
-      { name: 'Nhiệt độ realtime', path: '/admin/iot', icon: Activity, badge: 'alerts' },
+      {
+        name: 'Nhiệt độ realtime',
+        path: '/admin/iot',
+        icon: Activity,
+        badge: 'alerts',
+      },
     ],
   },
   {
@@ -100,7 +104,9 @@ export default function AdminSidebar({ isOpen, onClose }) {
           </div>
           <div>
             <h1 className="font-extrabold text-base leading-tight">AGROCOLD</h1>
-            <p className="text-[10px] text-white/60 tracking-wider">ADMIN PANEL</p>
+            <p className="text-[10px] text-white/60 tracking-wider">
+              ADMIN PANEL
+            </p>
           </div>
         </div>
 
@@ -137,7 +143,9 @@ export default function AdminSidebar({ isOpen, onClose }) {
                             {alertCount > 99 ? '99+' : alertCount}
                           </span>
                         )}
-                        {isActive && !showBadge && <ChevronRight className="w-3 h-3" />}
+                        {isActive && !showBadge && (
+                          <ChevronRight className="w-3 h-3" />
+                        )}
                       </>
                     )}
                   </NavLink>
@@ -155,7 +163,9 @@ export default function AdminSidebar({ isOpen, onClose }) {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold truncate">Quản Trị Viên</p>
-              <p className="text-[10px] text-white/50 truncate">admin@agrocold.vn</p>
+              <p className="text-[10px] text-white/50 truncate">
+                admin@agrocold.vn
+              </p>
             </div>
           </div>
           <button
