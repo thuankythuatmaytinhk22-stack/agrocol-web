@@ -9,22 +9,20 @@ import {
   Users,
   X,
   CheckCircle,
-  Plus,
-  Trash2,
 } from 'lucide-react';
 
 export default function OrdersPage() {
   const [orders, setOrders] = useState([]);
   const [vehicles, setVehicles] = useState([]);
   const [drivers, setDrivers] = useState([]);
-  const [assignments, setAssignments] = useState({}); // { orderId: [assignment1, assignment2] }
+  const [assignments, setAssignments] = useState({});
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
 
   // Modal
   const [assignModal, setAssignModal] = useState(null);
-  const [assignList, setAssignList] = useState([]); // [{ vehicleId, driverId, boxes }]
+  const [assignList, setAssignList] = useState([]);
   const [assigning, setAssigning] = useState(false);
 
   useEffect(() => {
@@ -39,13 +37,21 @@ export default function OrdersPage() {
         .order('created_at', { ascending: false });
       if (orderData) setOrders(orderData);
 
+      // ✅ CHỈ LẤY XE VẬN CHUYỂN (delivery)
       const vData = await getAllVehicles();
-      setVehicles(vData.filter((v) => v.vehicle_type !== 'pickup'));
+      const deliveryVehicles = vData.filter(
+        (v) => (v.vehicle_type || 'delivery') === 'delivery'
+      );
+      setVehicles(deliveryVehicles);
 
+      // ✅ CHỈ LẤY TÀI XẾ VẬN CHUYỂN (delivery)
       const dData = await getAllDrivers();
-      setDrivers(dData);
+      const deliveryDrivers = dData.filter(
+        (d) => (d.driver_type || 'delivery') === 'delivery'
+      );
+      setDrivers(deliveryDrivers);
 
-      // Lấy assignments cho tất cả đơn
+      // Lấy assignments
       const { data: assignData } = await supabase
         .from('order_assignments')
         .select('*');
@@ -66,16 +72,93 @@ export default function OrdersPage() {
     }
   };
 
+  // ✅ CẬP NHẬT TRẠNG THÁI + TỰ ĐỘNG GIẢI PHÓNG XE/TX KHI DELIVERED
   const updateOrderStatus = async (orderId, newStatus) => {
-    const { error } = await supabase
-      .from('orders')
-      .update({ status: newStatus })
-      .eq('id', orderId);
-    if (error) alert('Lỗi: ' + error.message);
-    else fetchData();
+    try {
+      // 1. Cập nhật order
+      const { error } = await supabase
+        .from('orders')
+        .update({ status: newStatus })
+        .eq('id', orderId);
+      if (error) throw error;
+
+      // 2. Nếu chuyển sang 'delivered' → giải phóng xe + tài xế
+      if (newStatus === 'delivered') {
+        const orderAssigns = assignments[orderId] || [];
+
+        for (const a of orderAssigns) {
+          // Reset xe về idle
+          await supabase
+            .from('vehicles')
+            .update({
+              status: 'idle',
+              current_order_ids: null,
+              current_driver_id: null,
+              current_route: null,
+              departed_at: null,
+              estimated_return_at: null,
+            })
+            .eq('id', a.vehicle_id);
+
+          // Reset tài xế về available
+          await supabase
+            .from('drivers')
+            .update({
+              status: 'available',
+              current_vehicle_id: null,
+            })
+            .eq('id', a.driver_id);
+        }
+
+        // Đánh dấu assignments hoàn thành
+        await supabase
+          .from('order_assignments')
+          .update({
+            status: 'delivered',
+            completed_at: new Date().toISOString(),
+          })
+          .eq('order_id', orderId);
+      }
+
+      // 3. Nếu chuyển sang 'cancelled' → giải phóng luôn
+      if (newStatus === 'cancelled') {
+        const orderAssigns = assignments[orderId] || [];
+
+        for (const a of orderAssigns) {
+          await supabase
+            .from('vehicles')
+            .update({
+              status: 'idle',
+              current_order_ids: null,
+              current_driver_id: null,
+              current_route: null,
+              departed_at: null,
+              estimated_return_at: null,
+            })
+            .eq('id', a.vehicle_id);
+
+          await supabase
+            .from('drivers')
+            .update({
+              status: 'available',
+              current_vehicle_id: null,
+            })
+            .eq('id', a.driver_id);
+        }
+
+        await supabase
+          .from('order_assignments')
+          .update({ status: 'cancelled' })
+          .eq('order_id', orderId);
+      }
+
+      fetchData();
+    } catch (err) {
+      alert('Lỗi: ' + err.message);
+    }
   };
 
-  // Tính số xe cần thiết
+  // Tính số xe cần + chia thùng
   const calculateVehicles = (boxes) => {
     const numVehicles = Math.ceil((boxes || 0) / 12);
     const distribution = [];
@@ -86,23 +169,19 @@ export default function OrdersPage() {
       distribution.push(assigned);
       remaining -= assigned;
     }
-
-    return distribution; // VD: [12, 12, 1]
+    return distribution;
   };
 
-  // Mở modal phân công
   const openAssignModal = (order) => {
     const distribution = calculateVehicles(order.boxes);
     const existing = assignments[order.id] || [];
 
-    // Khởi tạo assignList
     const list = distribution.map((boxes, i) => {
       const existingAssign = existing[i];
       return {
         vehicleId: existingAssign?.vehicle_id || '',
         driverId: existingAssign?.driver_id || '',
         boxes: boxes,
-        assignmentId: existingAssign?.id || null,
       };
     });
 
@@ -110,7 +189,6 @@ export default function OrdersPage() {
     setAssignModal(order);
   };
 
-  // Cập nhật assign list
   const updateAssignment = (index, field, value) => {
     setAssignList((prev) => {
       const updated = [...prev];
@@ -119,23 +197,19 @@ export default function OrdersPage() {
     });
   };
 
-  // Lưu phân công
   const handleAssign = async () => {
-    // Validate
     const invalid = assignList.some((a) => !a.vehicleId || !a.driverId);
     if (invalid) {
       alert('Vui lòng chọn đầy đủ xe và tài xế cho tất cả các xe!');
       return;
     }
 
-    // Kiểm tra trùng xe
     const vehicleIds = assignList.map((a) => a.vehicleId);
     if (new Set(vehicleIds).size !== vehicleIds.length) {
       alert('Không được chọn cùng 1 xe cho nhiều lần phân công!');
       return;
     }
 
-    // Kiểm tra trùng tài xế
     const driverIds = assignList.map((a) => a.driverId);
     if (new Set(driverIds).size !== driverIds.length) {
       alert('Không được chọn cùng 1 tài xế cho nhiều lần phân công!');
@@ -144,13 +218,13 @@ export default function OrdersPage() {
 
     setAssigning(true);
     try {
-      // Xóa assignments cũ của đơn này (nếu có)
+      // Xóa assignments cũ
       await supabase
         .from('order_assignments')
         .delete()
         .eq('order_id', assignModal.id);
 
-      // Tạo assignments mới
+      // Tạo mới
       const inserts = assignList.map((a) => ({
         order_id: assignModal.id,
         vehicle_id: a.vehicleId,
@@ -164,18 +238,17 @@ export default function OrdersPage() {
         .insert(inserts);
       if (insertError) throw insertError;
 
-      // Cập nhật trạng thái đơn → shipping
+      // Cập nhật order
       await supabase
         .from('orders')
         .update({
           status: 'shipping',
-          // Giữ vehicle_id và driver_id đầu tiên cho tương thích
           vehicle_id: assignList[0].vehicleId,
           driver_id: assignList[0].driverId,
         })
         .eq('id', assignModal.id);
 
-      // Cập nhật trạng thái từng xe
+      // Cập nhật từng xe + tài xế
       for (const a of assignList) {
         await supabase
           .from('vehicles')
@@ -199,7 +272,7 @@ export default function OrdersPage() {
           })
           .eq('id', a.driverId);
 
-        // Tăng số chuyến
+        // Tăng chuyến
         const vehicle = vehicles.find((v) => v.id === a.vehicleId);
         const driver = drivers.find((d) => d.id === a.driverId);
         await supabase
@@ -222,7 +295,6 @@ export default function OrdersPage() {
     }
   };
 
-  // Hủy phân công
   const handleUnassign = async (order) => {
     if (!window.confirm('Hủy tất cả phân công xe và tài xế cho đơn này?'))
       return;
@@ -230,7 +302,6 @@ export default function OrdersPage() {
     try {
       const orderAssigns = assignments[order.id] || [];
 
-      // Reset từng xe và tài xế
       for (const a of orderAssigns) {
         await supabase
           .from('vehicles')
@@ -250,13 +321,11 @@ export default function OrdersPage() {
           .eq('id', a.driver_id);
       }
 
-      // Xóa assignments
       await supabase
         .from('order_assignments')
         .delete()
         .eq('order_id', order.id);
 
-      // Reset order
       await supabase
         .from('orders')
         .update({
@@ -316,7 +385,7 @@ export default function OrdersPage() {
     cancelled: orders.filter((o) => o.status === 'cancelled').length,
   };
 
-  // Xe nào available cho dropdown (trừ xe đã chọn ở hàng khác)
+  // ✅ Xe available: chỉ delivery + idle
   const getAvailableVehicles = (currentIndex) => {
     const selectedIds = assignList
       .filter((_, i) => i !== currentIndex)
@@ -329,6 +398,7 @@ export default function OrdersPage() {
     );
   };
 
+  // ✅ TX available: chỉ delivery + available
   const getAvailableDrivers = (currentIndex) => {
     const selectedIds = assignList
       .filter((_, i) => i !== currentIndex)
@@ -409,7 +479,7 @@ export default function OrdersPage() {
         </div>
       </div>
 
-      {/* Orders table */}
+      {/* Table */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-x-auto">
         <table className="w-full text-left min-w-[1100px]">
           <thead className="bg-agro-dark text-white">
@@ -482,8 +552,12 @@ export default function OrdersPage() {
                       {orderAssigns.length > 0 ? (
                         <div className="space-y-1">
                           {orderAssigns.map((a, idx) => {
-                            const v = vehicles.find((x) => x.id === a.vehicle_id);
-                            const d = drivers.find((x) => x.id === a.driver_id);
+                            const v = vehicles.find(
+                              (x) => x.id === a.vehicle_id
+                            );
+                            const d = drivers.find(
+                              (x) => x.id === a.driver_id
+                            );
                             return (
                               <div
                                 key={a.id}
@@ -555,7 +629,7 @@ export default function OrdersPage() {
         </table>
       </div>
 
-      {/* === MODAL PHÂN CÔNG NHIỀU XE === */}
+      {/* === MODAL PHÂN CÔNG === */}
       {assignModal && (
         <div
           className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
@@ -565,7 +639,6 @@ export default function OrdersPage() {
             className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Header */}
             <div className="flex items-center justify-between p-5 border-b border-gray-100 sticky top-0 bg-white z-10">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-agro-yellow rounded-xl flex items-center justify-center">
@@ -573,7 +646,7 @@ export default function OrdersPage() {
                 </div>
                 <div>
                   <h3 className="font-bold text-agro-dark">
-                    Phân công {assignList.length} xe
+                    Phân công {assignList.length} xe vận chuyển
                   </h3>
                   <p className="text-xs text-gray-500">
                     Đơn {assignModal.order_code} · {assignModal.boxes} thùng
@@ -588,18 +661,20 @@ export default function OrdersPage() {
               </button>
             </div>
 
-            {/* Body */}
             <div className="p-5 space-y-4">
-              {/* Thông tin đơn */}
               <div className="bg-agro-bg rounded-xl p-4 border border-gray-100">
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
                     <p className="text-xs text-gray-500">Khách hàng</p>
-                    <p className="font-semibold">{assignModal.customer_name}</p>
+                    <p className="font-semibold">
+                      {assignModal.customer_name}
+                    </p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500">Số thùng</p>
-                    <p className="font-semibold">{assignModal.boxes} thùng</p>
+                    <p className="font-semibold">
+                      {assignModal.boxes} thùng
+                    </p>
                   </div>
                   <div className="col-span-2">
                     <p className="text-xs text-gray-500">Tuyến</p>
@@ -635,7 +710,7 @@ export default function OrdersPage() {
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="block text-xs font-bold text-gray-600 mb-1.5">
-                          🚛 Chọn xe
+                          🚛 Chọn xe vận chuyển
                         </label>
                         <select
                           value={assign.vehicleId}
@@ -654,7 +729,7 @@ export default function OrdersPage() {
                       </div>
                       <div>
                         <label className="block text-xs font-bold text-gray-600 mb-1.5">
-                          👨‍✈️ Chọn tài xế
+                          👨‍✈️ Chọn TX vận chuyển
                         </label>
                         <select
                           value={assign.driverId}
@@ -676,21 +751,19 @@ export default function OrdersPage() {
                 ))}
               </div>
 
-              {/* Thông báo */}
               {assignList.every((a) => a.vehicleId && a.driverId) && (
                 <div className="bg-green-50 border border-green-100 rounded-xl p-3 flex items-start gap-2">
                   <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
                   <div className="text-xs text-green-800">
                     <p className="font-bold">Sẵn sàng phân công!</p>
                     <p>
-                      {assignList.length} xe sẽ được điều động cho đơn hàng này.
+                      {assignList.length} xe vận chuyển sẽ được điều động.
                     </p>
                   </div>
                 </div>
               )}
             </div>
 
-            {/* Footer */}
             <div className="flex gap-3 p-5 border-t border-gray-100 sticky bottom-0 bg-white">
               <button
                 onClick={() => setAssignModal(null)}

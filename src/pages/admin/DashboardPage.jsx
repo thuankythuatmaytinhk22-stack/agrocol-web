@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabaseClient';
-import { getVehicleStats } from '../../services/vehicleService';
-import { getDriverStats } from '../../services/driverService';
+import { getAllVehicles } from '../../services/vehicleService';
+import { getAllDrivers } from '../../services/driverService';
 import StatCard from '../../components/admin/StatCard';
 import RevenueSection from '../../components/admin/RevenueSection';
 import {
@@ -34,12 +34,16 @@ export default function DashboardPage() {
     idle: 0,
     inTransit: 0,
     maintenance: 0,
+    deliveryTotal: 0,
+    pickupTotal: 0,
   });
   const [driverStats, setDriverStats] = useState({
     total: 0,
     available: 0,
     onDuty: 0,
     off: 0,
+    deliveryTotal: 0,
+    pickupTotal: 0,
   });
   const [boxStats, setBoxStats] = useState({
     total: 0,
@@ -58,7 +62,7 @@ export default function DashboardPage() {
 
   const fetchAllData = async () => {
     try {
-      // 1. Lấy đơn hàng
+      // 1. Đơn hàng
       const { data: orders } = await supabase
         .from('orders')
         .select('*')
@@ -98,35 +102,54 @@ export default function DashboardPage() {
         setChartData(last7Days);
       }
 
-      // 2. Lấy thống kê xe
+      // 2. Xe — tách 2 loại
       try {
-        const vStats = await getVehicleStats();
-        setVehicleStats(vStats);
+        const vData = await getAllVehicles();
+        setVehicleStats({
+          total: vData.length,
+          idle: vData.filter((v) => v.status === 'idle').length,
+          inTransit: vData.filter((v) => v.status === 'in_transit').length,
+          maintenance: vData.filter((v) => v.status === 'maintenance').length,
+          deliveryTotal: vData.filter(
+            (v) => (v.vehicle_type || 'delivery') === 'delivery'
+          ).length,
+          pickupTotal: vData.filter((v) => v.vehicle_type === 'pickup').length,
+        });
       } catch (e) {
         console.error('Lỗi lấy stats xe:', e);
       }
 
-      // 3. Lấy thống kê tài xế
+      // 3. Tài xế — tách 2 loại
       try {
-        const dStats = await getDriverStats();
-        setDriverStats(dStats);
+        const dData = await getAllDrivers();
+        setDriverStats({
+          total: dData.length,
+          available: dData.filter((d) => d.status === 'available').length,
+          onDuty: dData.filter((d) => d.status === 'on_duty').length,
+          off: dData.filter((d) => d.status === 'off').length,
+          deliveryTotal: dData.filter(
+            (d) => (d.driver_type || 'delivery') === 'delivery'
+          ).length,
+          pickupTotal: dData.filter((d) => d.driver_type === 'pickup').length,
+        });
       } catch (e) {
         console.error('Lỗi lấy stats tài xế:', e);
       }
 
-      // 4. Lấy thống kê thùng
+      // 4. Thùng
       const { data: boxes } = await supabase.from('boxes').select('status');
       if (boxes) {
         setBoxStats({
           total: boxes.length,
           delivered: boxes.filter((b) => b.status === 'delivered').length,
-          waitingReturn: boxes.filter((b) => b.status === 'waiting_return').length,
+          waitingReturn: boxes.filter((b) => b.status === 'waiting_return')
+            .length,
           atHub: boxes.filter((b) => b.status === 'at_hub').length,
           ready: boxes.filter((b) => b.status === 'ready').length,
         });
       }
 
-      // 5. Tạo cảnh báo
+      // 5. Cảnh báo
       const newAlerts = [];
       if (orders) {
         const pendingOrders = orders.filter((o) => o.status === 'pending');
@@ -140,15 +163,6 @@ export default function DashboardPage() {
           });
         }
       }
-      if (vehicleStats.maintenance > 0) {
-        newAlerts.push({
-          type: 'danger',
-          icon: AlertTriangle,
-          title: `${vehicleStats.maintenance} xe đang bảo trì`,
-          description: 'Kiểm tra tiến độ bảo trì',
-          link: '/admin/vehicles',
-        });
-      }
       if (boxStats.waitingReturn > 10) {
         newAlerts.push({
           type: 'warning',
@@ -156,6 +170,15 @@ export default function DashboardPage() {
           title: `${boxStats.waitingReturn} thùng chờ thu hồi`,
           description: 'Cần điều phối thu hồi',
           link: '/admin/boxes',
+        });
+      }
+      if (vehicleStats.maintenance > 0) {
+        newAlerts.push({
+          type: 'danger',
+          icon: AlertTriangle,
+          title: `${vehicleStats.maintenance} xe đang bảo trì`,
+          description: 'Kiểm tra tiến độ bảo trì',
+          link: '/admin/vehicles',
         });
       }
       setAlerts(newAlerts);
@@ -193,7 +216,8 @@ export default function DashboardPage() {
       <div className="bg-gradient-to-r from-agro-dark to-[#1a6b52] rounded-2xl p-6 text-white shadow-lg">
         <h2 className="text-2xl font-extrabold mb-1">👋 Chào mừng trở lại!</h2>
         <p className="text-white/80 text-sm">
-          Đây là bảng điều khiển tổng quan của hệ thống AgroCold. Theo dõi đơn hàng, đội xe và tài xế trong thời gian thực.
+          Bảng điều khiển tổng quan AgroCold · Theo dõi đơn hàng, đội xe, tài xế
+          và nhiệt độ chuỗi lạnh theo thời gian thực.
         </p>
       </div>
 
@@ -245,40 +269,56 @@ export default function DashboardPage() {
             <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
               <div className="flex items-center gap-2 mb-1">
                 <Clock className="w-4 h-4 text-gray-600" />
-                <span className="text-xs text-gray-500 font-semibold">Chờ xử lý</span>
+                <span className="text-xs text-gray-500 font-semibold">
+                  Chờ xử lý
+                </span>
               </div>
-              <p className="text-2xl font-extrabold text-agro-dark">{orderStats.pending}</p>
+              <p className="text-2xl font-extrabold text-agro-dark">
+                {orderStats.pending}
+              </p>
             </div>
             <div className="bg-yellow-50 rounded-xl p-4 border border-yellow-100">
               <div className="flex items-center gap-2 mb-1">
                 <Truck className="w-4 h-4 text-yellow-600" />
-                <span className="text-xs text-yellow-700 font-semibold">Đang vận chuyển</span>
+                <span className="text-xs text-yellow-700 font-semibold">
+                  Đang vận chuyển
+                </span>
               </div>
-              <p className="text-2xl font-extrabold text-yellow-700">{orderStats.shipping}</p>
+              <p className="text-2xl font-extrabold text-yellow-700">
+                {orderStats.shipping}
+              </p>
             </div>
             <div className="bg-green-50 rounded-xl p-4 border border-green-100">
               <div className="flex items-center gap-2 mb-1">
                 <CheckCircle className="w-4 h-4 text-green-600" />
-                <span className="text-xs text-green-700 font-semibold">Đã giao</span>
+                <span className="text-xs text-green-700 font-semibold">
+                  Đã giao
+                </span>
               </div>
-              <p className="text-2xl font-extrabold text-green-700">{orderStats.delivered}</p>
+              <p className="text-2xl font-extrabold text-green-700">
+                {orderStats.delivered}
+              </p>
             </div>
             <div className="bg-red-50 rounded-xl p-4 border border-red-100">
               <div className="flex items-center gap-2 mb-1">
                 <XCircle className="w-4 h-4 text-red-600" />
-                <span className="text-xs text-red-700 font-semibold">Đã hủy</span>
+                <span className="text-xs text-red-700 font-semibold">
+                  Đã hủy
+                </span>
               </div>
-              <p className="text-2xl font-extrabold text-red-700">{orderStats.cancelled}</p>
+              <p className="text-2xl font-extrabold text-red-700">
+                {orderStats.cancelled}
+              </p>
             </div>
           </div>
         </div>
 
-        {/* Vehicle status */}
+        {/* Vehicle + Driver status */}
         <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
           <div className="flex items-center justify-between mb-5">
             <h3 className="font-bold text-agro-dark text-lg flex items-center gap-2">
               <Truck className="w-5 h-5" />
-              Trạng thái đội xe
+              Đội xe & Tài xế
             </h3>
             <Link
               to="/admin/vehicles"
@@ -287,32 +327,97 @@ export default function DashboardPage() {
               Xem tất cả <ArrowRight className="w-3 h-3" />
             </Link>
           </div>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between p-3 bg-green-50 rounded-xl border border-green-100">
-              <div className="flex items-center gap-3">
-                <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                <span className="font-semibold text-sm text-green-800">Xe rảnh</span>
+
+          {/* Xe */}
+          <div className="mb-4">
+            <p className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">
+              🚛 Xe
+            </p>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="bg-green-50 rounded-lg p-2.5 border border-green-100">
+                <p className="text-[10px] text-green-700 font-semibold">
+                  Rảnh
+                </p>
+                <p className="text-xl font-extrabold text-green-700">
+                  {vehicleStats.idle}
+                </p>
               </div>
-              <span className="text-2xl font-extrabold text-green-700">
-                {vehicleStats.idle}
+              <div className="bg-yellow-50 rounded-lg p-2.5 border border-yellow-100">
+                <p className="text-[10px] text-yellow-700 font-semibold">
+                  Đang chạy
+                </p>
+                <p className="text-xl font-extrabold text-yellow-700">
+                  {vehicleStats.inTransit}
+                </p>
+              </div>
+              <div className="bg-red-50 rounded-lg p-2.5 border border-red-100">
+                <p className="text-[10px] text-red-700 font-semibold">
+                  Bảo trì
+                </p>
+                <p className="text-xl font-extrabold text-red-700">
+                  {vehicleStats.maintenance}
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3 mt-2 text-[10px] text-gray-500 font-medium">
+              <span>
+                🚛 Vận chuyển:{' '}
+                <strong className="text-agro-dark">
+                  {vehicleStats.deliveryTotal}
+                </strong>
+              </span>
+              <span>
+                🚚 Thu hồi:{' '}
+                <strong className="text-agro-dark">
+                  {vehicleStats.pickupTotal}
+                </strong>
               </span>
             </div>
-            <div className="flex items-center justify-between p-3 bg-yellow-50 rounded-xl border border-yellow-100">
-              <div className="flex items-center gap-3">
-                <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
-                <span className="font-semibold text-sm text-yellow-800">Đang vận chuyển</span>
+          </div>
+
+          {/* Tài xế */}
+          <div>
+            <p className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">
+              👨‍✈️ Tài xế
+            </p>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="bg-green-50 rounded-lg p-2.5 border border-green-100">
+                <p className="text-[10px] text-green-700 font-semibold">
+                  Sẵn sàng
+                </p>
+                <p className="text-xl font-extrabold text-green-700">
+                  {driverStats.available}
+                </p>
               </div>
-              <span className="text-2xl font-extrabold text-yellow-700">
-                {vehicleStats.inTransit}
-              </span>
+              <div className="bg-yellow-50 rounded-lg p-2.5 border border-yellow-100">
+                <p className="text-[10px] text-yellow-700 font-semibold">
+                  Đang làm
+                </p>
+                <p className="text-xl font-extrabold text-yellow-700">
+                  {driverStats.onDuty}
+                </p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-2.5 border border-gray-200">
+                <p className="text-[10px] text-gray-700 font-semibold">
+                  Nghỉ
+                </p>
+                <p className="text-xl font-extrabold text-gray-700">
+                  {driverStats.off}
+                </p>
+              </div>
             </div>
-            <div className="flex items-center justify-between p-3 bg-red-50 rounded-xl border border-red-100">
-              <div className="flex items-center gap-3">
-                <div className="w-3 h-3 rounded-full bg-red-500"></div>
-                <span className="font-semibold text-sm text-red-800">Đang bảo trì</span>
-              </div>
-              <span className="text-2xl font-extrabold text-red-700">
-                {vehicleStats.maintenance}
+            <div className="flex gap-3 mt-2 text-[10px] text-gray-500 font-medium">
+              <span>
+                🚛 Vận chuyển:{' '}
+                <strong className="text-agro-dark">
+                  {driverStats.deliveryTotal}
+                </strong>
+              </span>
+              <span>
+                🚚 Thu hồi:{' '}
+                <strong className="text-agro-dark">
+                  {driverStats.pickupTotal}
+                </strong>
               </span>
             </div>
           </div>
@@ -381,7 +486,9 @@ export default function DashboardPage() {
                       <Icon className="w-5 h-5 flex-shrink-0 mt-0.5" />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-bold">{alert.title}</p>
-                        <p className="text-xs opacity-80 mt-0.5">{alert.description}</p>
+                        <p className="text-xs opacity-80 mt-0.5">
+                          {alert.description}
+                        </p>
                       </div>
                       <ArrowRight className="w-4 h-4 flex-shrink-0 mt-1" />
                     </div>
@@ -443,7 +550,8 @@ export default function DashboardPage() {
                         {order.order_code}
                       </p>
                       <p className="text-xs text-gray-500 truncate">
-                        {order.customer_name} · {order.product_type} · {order.boxes} thùng
+                        {order.customer_name} · {order.product_type} ·{' '}
+                        {order.boxes} thùng
                       </p>
                     </div>
                     <span
@@ -474,24 +582,42 @@ export default function DashboardPage() {
           </div>
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-600 font-medium">Tổng thùng</span>
-              <span className="font-bold text-agro-dark">{boxStats.total}</span>
+              <span className="text-sm text-gray-600 font-medium">
+                Tổng thùng
+              </span>
+              <span className="font-bold text-agro-dark">
+                {boxStats.total}
+              </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-600 font-medium">Đã giao</span>
-              <span className="font-bold text-green-600">{boxStats.delivered}</span>
+              <span className="text-sm text-gray-600 font-medium">
+                Đã giao
+              </span>
+              <span className="font-bold text-green-600">
+                {boxStats.delivered}
+              </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-600 font-medium">Chờ thu hồi</span>
-              <span className="font-bold text-yellow-600">{boxStats.waitingReturn}</span>
+              <span className="text-sm text-gray-600 font-medium">
+                Chờ thu hồi
+              </span>
+              <span className="font-bold text-yellow-600">
+                {boxStats.waitingReturn}
+              </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-600 font-medium">Đã về Hub</span>
+              <span className="text-sm text-gray-600 font-medium">
+                Đã về Hub
+              </span>
               <span className="font-bold text-blue-600">{boxStats.atHub}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-600 font-medium">Sẵn sàng</span>
-              <span className="font-bold text-purple-600">{boxStats.ready}</span>
+              <span className="text-sm text-gray-600 font-medium">
+                Sẵn sàng
+              </span>
+              <span className="font-bold text-purple-600">
+                {boxStats.ready}
+              </span>
             </div>
             <div className="pt-3 border-t border-gray-100">
               <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
@@ -508,7 +634,9 @@ export default function DashboardPage() {
               </div>
               <p className="text-xs text-gray-500 mt-2 text-center font-medium">
                 {boxStats.total > 0
-                  ? `${Math.round((boxStats.ready / boxStats.total) * 100)}% sẵn sàng tái sử dụng`
+                  ? `${Math.round(
+                      (boxStats.ready / boxStats.total) * 100
+                    )}% sẵn sàng tái sử dụng`
                   : 'Chưa có dữ liệu'}
               </p>
             </div>

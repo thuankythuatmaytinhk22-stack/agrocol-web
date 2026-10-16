@@ -21,12 +21,15 @@ import {
   CheckCircle,
   Coffee,
   UserCheck,
+  Recycle,
+  Package,
 } from 'lucide-react';
 
 export default function DriversPage() {
   const [drivers, setDrivers] = useState([]);
   const [vehicles, setVehicles] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('delivery'); // 'delivery' hoặc 'pickup'
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
 
@@ -40,6 +43,7 @@ export default function DriversPage() {
     status: 'available',
     years_experience: 0,
     favorite_routes_text: '',
+    driver_type: 'delivery',
     notes: '',
   });
   const [saving, setSaving] = useState(false);
@@ -61,6 +65,40 @@ export default function DriversPage() {
     }
   };
 
+  // Lọc theo tab
+  const tabDrivers = drivers.filter((d) => {
+    const type = d.driver_type || 'delivery';
+    return type === activeTab;
+  });
+
+  // Lọc thêm theo status + search
+  const filteredDrivers = tabDrivers.filter((d) => {
+    const matchStatus = filter === 'all' || d.status === filter;
+    const matchSearch =
+      !search ||
+      d.name.toLowerCase().includes(search.toLowerCase()) ||
+      d.phone.includes(search) ||
+      d.license_number?.toLowerCase().includes(search.toLowerCase());
+    return matchStatus && matchSearch;
+  });
+
+  // Đếm theo trạng thái trong tab hiện tại
+  const counts = {
+    all: tabDrivers.length,
+    available: tabDrivers.filter((d) => d.status === 'available').length,
+    on_duty: tabDrivers.filter((d) => d.status === 'on_duty').length,
+    off: tabDrivers.filter((d) => d.status === 'off').length,
+  };
+
+  // Đếm tổng 2 loại
+  const totalDelivery = drivers.filter(
+    (d) => (d.driver_type || 'delivery') === 'delivery'
+  ).length;
+  const totalPickup = drivers.filter(
+    (d) => d.driver_type === 'pickup'
+  ).length;
+
+  // Mở modal thêm
   const openAddModal = () => {
     setEditingDriver(null);
     setFormData({
@@ -70,11 +108,13 @@ export default function DriversPage() {
       status: 'available',
       years_experience: 0,
       favorite_routes_text: '',
+      driver_type: activeTab,
       notes: '',
     });
     setShowModal(true);
   };
 
+  // Mở modal sửa
   const openEditModal = (driver) => {
     setEditingDriver(driver);
     setFormData({
@@ -84,6 +124,7 @@ export default function DriversPage() {
       status: driver.status,
       years_experience: driver.years_experience || 0,
       favorite_routes_text: (driver.favorite_routes || []).join(', '),
+      driver_type: driver.driver_type || 'delivery',
       notes: driver.notes || '',
     });
     setShowModal(true);
@@ -107,6 +148,7 @@ export default function DriversPage() {
           .split(',')
           .map((r) => r.trim())
           .filter(Boolean),
+        driver_type: formData.driver_type,
         notes: formData.notes.trim(),
       };
 
@@ -173,26 +215,9 @@ export default function DriversPage() {
     },
   };
 
-  const filteredDrivers = drivers.filter((d) => {
-    const matchStatus = filter === 'all' || d.status === filter;
-    const matchSearch =
-      !search ||
-      d.name.toLowerCase().includes(search.toLowerCase()) ||
-      d.phone.includes(search) ||
-      d.license_number?.toLowerCase().includes(search.toLowerCase());
-    return matchStatus && matchSearch;
-  });
-
-  const counts = {
-    all: drivers.length,
-    available: drivers.filter((d) => d.status === 'available').length,
-    on_duty: drivers.filter((d) => d.status === 'on_duty').length,
-    off: drivers.filter((d) => d.status === 'off').length,
-  };
-
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <div className="flex items-center justify-center h-96">
         <div className="w-12 h-12 border-4 border-agro-yellow border-t-transparent rounded-full animate-spin"></div>
       </div>
     );
@@ -208,7 +233,7 @@ export default function DriversPage() {
             Quản lý Tài xế
           </h2>
           <p className="text-sm text-gray-500 mt-1">
-            {counts.all} tài xế · {counts.available} sẵn sàng · {counts.on_duty} đang làm việc
+            {totalDelivery} tài xế vận chuyển · {totalPickup} tài xế thu hồi
           </p>
         </div>
         <button
@@ -216,25 +241,94 @@ export default function DriversPage() {
           className="bg-agro-yellow hover:bg-yellow-500 text-agro-dark font-bold px-5 py-3 rounded-xl flex items-center gap-2 transition-colors shadow-sm"
         >
           <Plus className="w-5 h-5" />
-          Thêm tài xế mới
+          Thêm {activeTab === 'pickup' ? 'TX thu hồi' : 'TX vận chuyển'}
         </button>
       </div>
 
-      {/* Stats cards */}
+      {/* Tabs chính */}
+      <div className="bg-white rounded-2xl p-2 border border-gray-100 shadow-sm flex gap-2">
+        <button
+          onClick={() => {
+            setActiveTab('delivery');
+            setFilter('all');
+            setSearch('');
+          }}
+          className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold text-sm transition-colors ${
+            activeTab === 'delivery'
+              ? 'bg-agro-dark text-white'
+              : 'text-gray-600 hover:bg-gray-100'
+          }`}
+        >
+          <Truck className="w-4 h-4" />
+          Tài xế vận chuyển
+          <span
+            className={`text-xs px-2 py-0.5 rounded-full ${
+              activeTab === 'delivery' ? 'bg-white/20' : 'bg-gray-200'
+            }`}
+          >
+            {totalDelivery}
+          </span>
+        </button>
+        <button
+          onClick={() => {
+            setActiveTab('pickup');
+            setFilter('all');
+            setSearch('');
+          }}
+          className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold text-sm transition-colors ${
+            activeTab === 'pickup'
+              ? 'bg-agro-dark text-white'
+              : 'text-gray-600 hover:bg-gray-100'
+          }`}
+        >
+          <Recycle className="w-4 h-4" />
+          Tài xế thu hồi
+          <span
+            className={`text-xs px-2 py-0.5 rounded-full ${
+              activeTab === 'pickup' ? 'bg-white/20' : 'bg-gray-200'
+            }`}
+          >
+            {totalPickup}
+          </span>
+        </button>
+      </div>
+
+      {/* Mô tả tab */}
+      <div
+        className={`rounded-2xl p-4 border ${
+          activeTab === 'delivery'
+            ? 'bg-green-50 border-green-100'
+            : 'bg-blue-50 border-blue-100'
+        }`}
+      >
+        <p
+          className={`text-sm font-medium ${
+            activeTab === 'delivery' ? 'text-green-800' : 'text-blue-800'
+          }`}
+        >
+          {activeTab === 'delivery'
+            ? '🚛 Tài xế vận chuyển — được phân công lái xe có làm lạnh đi giao hàng.'
+            : '🚚 Tài xế thu hồi — được phân công lái xe thu hồi thùng rỗng về kho.'}
+        </p>
+      </div>
+
+      {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
           <div className="flex items-center gap-2 mb-1">
             <div className="w-3 h-3 rounded-full bg-agro-dark"></div>
             <span className="text-xs text-gray-500 font-semibold">Tổng</span>
           </div>
-          <p className="text-3xl font-extrabold text-agro-dark">{counts.all}</p>
+          <p className="text-2xl font-extrabold text-agro-dark">{counts.all}</p>
         </div>
         <div className="bg-green-50 rounded-2xl p-4 border border-green-100">
           <div className="flex items-center gap-2 mb-1">
             <div className="w-3 h-3 rounded-full bg-green-500"></div>
-            <span className="text-xs text-green-700 font-semibold">Sẵn sàng</span>
+            <span className="text-xs text-green-700 font-semibold">
+              Sẵn sàng
+            </span>
           </div>
-          <p className="text-3xl font-extrabold text-green-700">
+          <p className="text-2xl font-extrabold text-green-700">
             {counts.available}
           </p>
         </div>
@@ -245,7 +339,7 @@ export default function DriversPage() {
               Đang làm việc
             </span>
           </div>
-          <p className="text-3xl font-extrabold text-yellow-700">
+          <p className="text-2xl font-extrabold text-yellow-700">
             {counts.on_duty}
           </p>
         </div>
@@ -254,7 +348,9 @@ export default function DriversPage() {
             <div className="w-3 h-3 rounded-full bg-gray-500"></div>
             <span className="text-xs text-gray-700 font-semibold">Nghỉ</span>
           </div>
-          <p className="text-3xl font-extrabold text-gray-700">{counts.off}</p>
+          <p className="text-2xl font-extrabold text-gray-700">
+            {counts.off}
+          </p>
         </div>
       </div>
 
@@ -292,14 +388,20 @@ export default function DriversPage() {
         </div>
       </div>
 
-      {/* Drivers grid */}
+      {/* Grid */}
       {filteredDrivers.length === 0 ? (
         <div className="bg-white rounded-2xl p-12 border border-gray-100 shadow-sm text-center">
-          <Users className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+          {activeTab === 'delivery' ? (
+            <Users className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+          ) : (
+            <Recycle className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+          )}
           <p className="text-gray-500 font-medium">
             {search || filter !== 'all'
               ? 'Không tìm thấy tài xế nào phù hợp'
-              : 'Chưa có tài xế nào. Bấm "Thêm tài xế mới" để bắt đầu!'}
+              : `Chưa có tài xế ${
+                  activeTab === 'pickup' ? 'thu hồi' : 'vận chuyển'
+                } nào`}
           </p>
         </div>
       ) : (
@@ -307,6 +409,7 @@ export default function DriversPage() {
           {filteredDrivers.map((driver) => {
             const status = statusOptions[driver.status];
             const StatusIcon = status.icon;
+            const isPickup = driver.driver_type === 'pickup';
             const currentVehicle = vehicles.find(
               (v) => v.id === driver.current_vehicle_id
             );
@@ -319,7 +422,13 @@ export default function DriversPage() {
                 {/* Header */}
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 bg-agro-dark rounded-xl flex items-center justify-center font-extrabold text-agro-yellow text-lg">
+                    <div
+                      className={`w-12 h-12 rounded-xl flex items-center justify-center font-extrabold text-lg ${
+                        isPickup
+                          ? 'bg-blue-100 text-blue-700'
+                          : 'bg-agro-dark text-agro-yellow'
+                      }`}
+                    >
                       {driver.name.charAt(0)}
                     </div>
                     <div>
@@ -350,6 +459,19 @@ export default function DriversPage() {
                   </div>
                 </div>
 
+                {/* Loại tài xế */}
+                <div className="mb-3">
+                  <span
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                      isPickup
+                        ? 'bg-blue-100 text-blue-700'
+                        : 'bg-green-100 text-green-700'
+                    }`}
+                  >
+                    {isPickup ? '🚚 TX thu hồi' : '🚛 TX vận chuyển'}
+                  </span>
+                </div>
+
                 {/* Status */}
                 <div className="flex items-center gap-2 mb-4">
                   <span
@@ -378,9 +500,14 @@ export default function DriversPage() {
                   </div>
                   {currentVehicle && driver.status === 'on_duty' && (
                     <div className="flex items-center gap-2 text-xs">
-                      <Truck className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                      {isPickup ? (
+                        <Recycle className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                      ) : (
+                        <Truck className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                      )}
                       <span className="text-gray-600">
-                        Đang lái xe: <strong>{currentVehicle.plate_number}</strong>
+                        Đang lái xe:{' '}
+                        <strong>{currentVehicle.plate_number}</strong>
                       </span>
                     </div>
                   )}
@@ -397,7 +524,11 @@ export default function DriversPage() {
                       {driver.favorite_routes.slice(0, 3).map((route, i) => (
                         <span
                           key={i}
-                          className="text-[10px] bg-green-50 text-agro-dark px-2 py-1 rounded-full font-semibold"
+                          className={`text-[10px] px-2 py-1 rounded-full font-semibold ${
+                            isPickup
+                              ? 'bg-blue-50 text-blue-700'
+                              : 'bg-green-50 text-agro-dark'
+                          }`}
                         >
                           {route}
                         </span>
@@ -412,21 +543,22 @@ export default function DriversPage() {
                   <span>⭐ {driver.years_experience || 0} năm KN</span>
                 </div>
 
-                {/* Status quick change */}
-                {driver.status !== 'on_duty' && (
+                {/* Status change */}
+                {driver.status !== 'on_duty' ? (
                   <select
                     value={driver.status}
-                    onChange={(e) => handleStatusChange(driver, e.target.value)}
+                    onChange={(e) =>
+                      handleStatusChange(driver, e.target.value)
+                    }
                     className="w-full border border-gray-300 rounded-xl px-3 py-2 text-xs font-semibold outline-none focus:ring-2 focus:ring-agro-dark text-agro-dark"
                   >
                     <option value="available">🟢 Sẵn sàng</option>
                     <option value="off">⚫ Nghỉ</option>
                   </select>
-                )}
-                {driver.status === 'on_duty' && (
+                ) : (
                   <div className="bg-yellow-50 border border-yellow-100 rounded-xl p-2 text-center">
                     <p className="text-xs text-yellow-700 font-semibold">
-                      🚛 Đang làm việc
+                      {isPickup ? '🚚 Đang thu hồi' : '🚛 Đang giao hàng'}
                     </p>
                   </div>
                 )}
@@ -436,7 +568,7 @@ export default function DriversPage() {
         </div>
       )}
 
-      {/* === MODAL THÊM/SỬA TÀI XẾ === */}
+      {/* === MODAL THÊM/SỬA === */}
       {showModal && (
         <div
           className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
@@ -446,15 +578,30 @@ export default function DriversPage() {
             className="bg-white rounded-2xl max-w-md w-full shadow-2xl max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Header */}
             <div className="flex items-center justify-between p-5 border-b border-gray-100 sticky top-0 bg-white z-10">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-agro-yellow rounded-xl flex items-center justify-center">
-                  <Users className="w-5 h-5 text-agro-dark" />
+                <div
+                  className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                    formData.driver_type === 'pickup'
+                      ? 'bg-blue-100 text-blue-700'
+                      : 'bg-agro-yellow text-agro-dark'
+                  }`}
+                >
+                  {formData.driver_type === 'pickup' ? (
+                    <Recycle className="w-5 h-5" />
+                  ) : (
+                    <Users className="w-5 h-5" />
+                  )}
                 </div>
                 <div>
                   <h3 className="font-bold text-agro-dark">
-                    {editingDriver ? 'Sửa thông tin tài xế' : 'Thêm tài xế mới'}
+                    {editingDriver
+                      ? 'Sửa thông tin tài xế'
+                      : `Thêm ${
+                          formData.driver_type === 'pickup'
+                            ? 'TX thu hồi'
+                            : 'TX vận chuyển'
+                        }`}
                   </h3>
                   <p className="text-xs text-gray-500">
                     {editingDriver
@@ -471,8 +618,58 @@ export default function DriversPage() {
               </button>
             </div>
 
-            {/* Body */}
             <div className="p-5 space-y-4">
+              {/* Loại tài xế */}
+              {!editingDriver && (
+                <div>
+                  <label className="block text-sm font-bold text-agro-dark mb-2">
+                    Loại tài xế
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setFormData({
+                          ...formData,
+                          driver_type: 'delivery',
+                        })
+                      }
+                      className={`p-3 rounded-xl border-2 text-left transition-colors ${
+                        formData.driver_type === 'delivery'
+                          ? 'border-agro-yellow bg-agro-yellow/10'
+                          : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      <Truck className="w-5 h-5 text-agro-dark mb-1" />
+                      <p className="font-bold text-xs">TX vận chuyển</p>
+                      <p className="text-[10px] text-gray-500">
+                        Lái xe giao hàng
+                      </p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setFormData({
+                          ...formData,
+                          driver_type: 'pickup',
+                        })
+                      }
+                      className={`p-3 rounded-xl border-2 text-left transition-colors ${
+                        formData.driver_type === 'pickup'
+                          ? 'border-agro-yellow bg-agro-yellow/10'
+                          : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      <Recycle className="w-5 h-5 text-blue-600 mb-1" />
+                      <p className="font-bold text-xs">TX thu hồi</p>
+                      <p className="text-[10px] text-gray-500">
+                        Lái xe thu hồi thùng
+                      </p>
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-bold text-agro-dark mb-2">
                   Tên tài xế <span className="text-red-500">*</span>
@@ -565,7 +762,11 @@ export default function DriversPage() {
                       favorite_routes_text: e.target.value,
                     })
                   }
-                  placeholder="VD: Đắk Lắk → TP.HCM, Đà Lạt → TP.HCM"
+                  placeholder={
+                    formData.driver_type === 'pickup'
+                      ? 'VD: Đà Nẵng → Kho, Đắk Lắk → Kho'
+                      : 'VD: Đắk Lắk → TP.HCM, Đà Lạt → TP.HCM'
+                  }
                   className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-agro-dark text-agro-dark font-medium"
                 />
                 <p className="text-xs text-gray-500 mt-1">
@@ -589,7 +790,6 @@ export default function DriversPage() {
               </div>
             </div>
 
-            {/* Footer */}
             <div className="flex gap-3 p-5 border-t border-gray-100 sticky bottom-0 bg-white">
               <button
                 onClick={() => setShowModal(false)}
@@ -602,7 +802,11 @@ export default function DriversPage() {
                 disabled={saving}
                 className="flex-1 bg-agro-yellow hover:bg-yellow-500 text-agro-dark font-bold py-3 rounded-xl transition-colors disabled:opacity-50"
               >
-                {saving ? 'Đang lưu...' : editingDriver ? 'Cập nhật' : 'Thêm mới'}
+                {saving
+                  ? 'Đang lưu...'
+                  : editingDriver
+                  ? 'Cập nhật'
+                  : 'Thêm mới'}
               </button>
             </div>
           </div>

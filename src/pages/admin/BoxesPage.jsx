@@ -22,7 +22,7 @@ import {
 export default function BoxesPage() {
   const [orders, setOrders] = useState([]);
   const [pickupVehicles, setPickupVehicles] = useState([]);
-  const [availableDrivers, setAvailableDrivers] = useState([]);
+  const [pickupDrivers, setPickupDrivers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
@@ -47,7 +47,7 @@ export default function BoxesPage() {
 
   const fetchData = async () => {
     try {
-      // Lấy đơn hàng đã giao hoặc đang thu hồi
+      // Lấy đơn hàng đã giao hoặc đang giao
       const { data: orderData } = await supabase
         .from('orders')
         .select('*')
@@ -57,14 +57,19 @@ export default function BoxesPage() {
       // Lấy thùng
       const { data: boxesData } = await supabase.from('boxes').select('*');
 
-      // Lấy chuyến thu hồi
-      const [vehiclesData, driversData] = await Promise.all([
-        getPickupVehicles(),
-        getAvailableDriversForPickup(),
-      ]);
+      // ✅ LẤY XE THU HỒI (pickup)
+      const vehiclesData = await getPickupVehicles();
 
+      // ✅ LẤY TÀI XẾ THU HỒI (pickup)
+      const { data: driversData } = await supabase
+        .from('drivers')
+        .select('*')
+        .eq('driver_type', 'pickup')
+        .eq('status', 'available');
+
+      // Chỉ giữ xe thu hồi đang rảnh
       setPickupVehicles(vehiclesData.filter((v) => v.status === 'idle'));
-      setAvailableDrivers(driversData);
+      setPickupDrivers(driversData || []);
 
       // Gộp thùng theo order_id
       const boxMap = {};
@@ -77,7 +82,6 @@ export default function BoxesPage() {
       const ordersWithBoxes = (orderData || [])
         .map((o) => {
           const orderBoxes = boxMap[o.id] || [];
-          // Chỉ tính các thùng cần thu hồi (delivered, waiting_return, picking_up)
           const pickupBoxes = orderBoxes.filter((b) =>
             ['delivered', 'waiting_return', 'picking_up'].includes(b.status)
           );
@@ -85,7 +89,6 @@ export default function BoxesPage() {
             ['at_hub', 'ready'].includes(b.status)
           );
 
-          // Phân loại theo trạng thái
           const waiting = pickupBoxes.filter((b) =>
             ['delivered', 'waiting_return'].includes(b.status)
           ).length;
@@ -115,7 +118,6 @@ export default function BoxesPage() {
     }
   };
 
-  // Lấy trạng thái thu hồi của đơn
   const getPickupStatus = (order) => {
     if (order.total_boxes === 0) {
       return { level: 'empty', label: 'Chưa có thùng', color: 'gray' };
@@ -139,7 +141,6 @@ export default function BoxesPage() {
     return { level: 'unknown', label: 'Không xác định', color: 'gray' };
   };
 
-  // Mở modal phân công
   const openAssignModal = (order) => {
     setAssignModal(order);
     setSelectedVehicle('');
@@ -149,10 +150,9 @@ export default function BoxesPage() {
     setNotes('');
   };
 
-  // Xử lý phân công
   const handleAssign = async () => {
     if (!selectedVehicle || !selectedDriver) {
-      alert('Vui lòng chọn xe và tài xế!');
+      alert('Vui lòng chọn xe thu hồi và tài xế thu hồi!');
       return;
     }
 
@@ -189,7 +189,6 @@ export default function BoxesPage() {
     }
   };
 
-  // Đánh dấu đã thu hồi (cho đơn đang thu hồi)
   const handleMarkDone = async (order) => {
     if (
       !window.confirm(
@@ -199,7 +198,7 @@ export default function BoxesPage() {
       return;
 
     try {
-      // Cập nhật tất cả thùng picking_up → ready
+      // Cập nhật thùng picking_up → ready
       const { data: boxes } = await supabase
         .from('boxes')
         .select('id')
@@ -221,7 +220,6 @@ export default function BoxesPage() {
         .eq('status', 'in_progress');
 
       if (trips && trips.length > 0) {
-        // Reset xe
         for (const trip of trips) {
           if (trip.vehicle_id) {
             await supabase
@@ -241,7 +239,6 @@ export default function BoxesPage() {
               .update({ status: 'available', current_vehicle_id: null })
               .eq('id', trip.driver_id);
           }
-          // Đánh dấu trip completed
           await supabase
             .from('pickup_trips')
             .update({
@@ -259,7 +256,6 @@ export default function BoxesPage() {
     }
   };
 
-  // Filter
   const filteredOrders = orders.filter((o) => {
     if (filter === 'waiting' && o.waiting_boxes === 0) return false;
     if (filter === 'picking_up' && o.picking_up_boxes === 0) return false;
@@ -276,7 +272,6 @@ export default function BoxesPage() {
     );
   });
 
-  // Stats
   const stats = {
     total: orders.reduce((sum, o) => sum + o.total_boxes, 0),
     waiting: orders.reduce((sum, o) => sum + o.waiting_boxes, 0),
@@ -285,22 +280,10 @@ export default function BoxesPage() {
   };
 
   const statusColorMap = {
-    yellow: {
-      badge: 'bg-yellow-100 text-yellow-700',
-      icon: Clock,
-    },
-    blue: {
-      badge: 'bg-blue-100 text-blue-700',
-      icon: Truck,
-    },
-    green: {
-      badge: 'bg-green-100 text-green-700',
-      icon: CheckCircle,
-    },
-    gray: {
-      badge: 'bg-gray-100 text-gray-700',
-      icon: Package,
-    },
+    yellow: { badge: 'bg-yellow-100 text-yellow-700', icon: Clock },
+    blue: { badge: 'bg-blue-100 text-blue-700', icon: Truck },
+    green: { badge: 'bg-green-100 text-green-700', icon: CheckCircle },
+    gray: { badge: 'bg-gray-100 text-gray-700', icon: Package },
   };
 
   if (loading) {
@@ -522,8 +505,8 @@ export default function BoxesPage() {
           >
             <div className="flex items-center justify-between p-5 border-b border-gray-100 sticky top-0 bg-white z-10">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-agro-yellow rounded-xl flex items-center justify-center">
-                  <Truck className="w-5 h-5 text-agro-dark" />
+                <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
+                  <Recycle className="w-5 h-5 text-blue-700" />
                 </div>
                 <div>
                   <h3 className="font-bold text-agro-dark">
@@ -566,40 +549,54 @@ export default function BoxesPage() {
                 </div>
               </div>
 
+              {/* ✅ Chỉ chọn xe thu hồi */}
               <div>
                 <label className="block text-sm font-bold text-agro-dark mb-2">
-                  🚛 Chọn xe thu hồi
+                  🚚 Chọn xe thu hồi
                 </label>
                 <select
                   value={selectedVehicle}
                   onChange={(e) => setSelectedVehicle(e.target.value)}
                   className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-agro-dark text-agro-dark font-medium"
                 >
-                  <option value="">-- Chọn xe --</option>
+                  <option value="">-- Chọn xe thu hồi --</option>
                   {pickupVehicles.map((v) => (
                     <option key={v.id} value={v.id}>
                       {v.plate_number} · {v.max_boxes || v.capacity_boxes} thùng
                     </option>
                   ))}
                 </select>
+                {pickupVehicles.length === 0 && (
+                  <p className="text-xs text-red-500 mt-1">
+                    ⚠️ Không có xe thu hồi nào rảnh. Vào "Danh sách xe" →
+                    "Xe thu hồi" để thêm.
+                  </p>
+                )}
               </div>
 
+              {/* ✅ Chỉ chọn tài xế thu hồi */}
               <div>
                 <label className="block text-sm font-bold text-agro-dark mb-2">
-                  👨‍✈️ Chọn tài xế
+                  👷 Chọn tài xế thu hồi
                 </label>
                 <select
                   value={selectedDriver}
                   onChange={(e) => setSelectedDriver(e.target.value)}
                   className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-agro-dark text-agro-dark font-medium"
                 >
-                  <option value="">-- Chọn tài xế --</option>
-                  {availableDrivers.map((d) => (
+                  <option value="">-- Chọn tài xế thu hồi --</option>
+                  {pickupDrivers.map((d) => (
                     <option key={d.id} value={d.id}>
                       {d.name} · {d.phone}
                     </option>
                   ))}
                 </select>
+                {pickupDrivers.length === 0 && (
+                  <p className="text-xs text-red-500 mt-1">
+                    ⚠️ Không có tài xế thu hồi nào rảnh. Vào "Danh sách tài xế"
+                    → "Tài xế thu hồi" để thêm.
+                  </p>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
