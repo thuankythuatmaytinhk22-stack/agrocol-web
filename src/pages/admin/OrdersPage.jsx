@@ -9,19 +9,22 @@ import {
   Users,
   X,
   CheckCircle,
+  Plus,
+  Trash2,
 } from 'lucide-react';
 
 export default function OrdersPage() {
   const [orders, setOrders] = useState([]);
   const [vehicles, setVehicles] = useState([]);
   const [drivers, setDrivers] = useState([]);
+  const [assignments, setAssignments] = useState({}); // { orderId: [assignment1, assignment2] }
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
 
+  // Modal
   const [assignModal, setAssignModal] = useState(null);
-  const [selectedVehicle, setSelectedVehicle] = useState('');
-  const [selectedDriver, setSelectedDriver] = useState('');
+  const [assignList, setAssignList] = useState([]); // [{ vehicleId, driverId, boxes }]
   const [assigning, setAssigning] = useState(false);
 
   useEffect(() => {
@@ -37,10 +40,24 @@ export default function OrdersPage() {
       if (orderData) setOrders(orderData);
 
       const vData = await getAllVehicles();
-      setVehicles(vData);
+      setVehicles(vData.filter((v) => v.vehicle_type !== 'pickup'));
 
       const dData = await getAllDrivers();
       setDrivers(dData);
+
+      // Lấy assignments cho tất cả đơn
+      const { data: assignData } = await supabase
+        .from('order_assignments')
+        .select('*');
+
+      if (assignData) {
+        const map = {};
+        assignData.forEach((a) => {
+          if (!map[a.order_id]) map[a.order_id] = [];
+          map[a.order_id].push(a);
+        });
+        setAssignments(map);
+      }
 
       setLoading(false);
     } catch (err) {
@@ -58,66 +75,144 @@ export default function OrdersPage() {
     else fetchData();
   };
 
-  const openAssignModal = (order) => {
-    setAssignModal(order);
-    setSelectedVehicle(order.vehicle_id || '');
-    setSelectedDriver(order.driver_id || '');
+  // Tính số xe cần thiết
+  const calculateVehicles = (boxes) => {
+    const numVehicles = Math.ceil((boxes || 0) / 12);
+    const distribution = [];
+    let remaining = boxes || 0;
+
+    for (let i = 0; i < numVehicles; i++) {
+      const assigned = remaining >= 12 ? 12 : remaining;
+      distribution.push(assigned);
+      remaining -= assigned;
+    }
+
+    return distribution; // VD: [12, 12, 1]
   };
 
+  // Mở modal phân công
+  const openAssignModal = (order) => {
+    const distribution = calculateVehicles(order.boxes);
+    const existing = assignments[order.id] || [];
+
+    // Khởi tạo assignList
+    const list = distribution.map((boxes, i) => {
+      const existingAssign = existing[i];
+      return {
+        vehicleId: existingAssign?.vehicle_id || '',
+        driverId: existingAssign?.driver_id || '',
+        boxes: boxes,
+        assignmentId: existingAssign?.id || null,
+      };
+    });
+
+    setAssignList(list);
+    setAssignModal(order);
+  };
+
+  // Cập nhật assign list
+  const updateAssignment = (index, field, value) => {
+    setAssignList((prev) => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+  };
+
+  // Lưu phân công
   const handleAssign = async () => {
-    if (!selectedVehicle || !selectedDriver) {
-      alert('Vui lòng chọn cả xe và tài xế!');
+    // Validate
+    const invalid = assignList.some((a) => !a.vehicleId || !a.driverId);
+    if (invalid) {
+      alert('Vui lòng chọn đầy đủ xe và tài xế cho tất cả các xe!');
+      return;
+    }
+
+    // Kiểm tra trùng xe
+    const vehicleIds = assignList.map((a) => a.vehicleId);
+    if (new Set(vehicleIds).size !== vehicleIds.length) {
+      alert('Không được chọn cùng 1 xe cho nhiều lần phân công!');
+      return;
+    }
+
+    // Kiểm tra trùng tài xế
+    const driverIds = assignList.map((a) => a.driverId);
+    if (new Set(driverIds).size !== driverIds.length) {
+      alert('Không được chọn cùng 1 tài xế cho nhiều lần phân công!');
       return;
     }
 
     setAssigning(true);
     try {
-      const { error: orderError } = await supabase
+      // Xóa assignments cũ của đơn này (nếu có)
+      await supabase
+        .from('order_assignments')
+        .delete()
+        .eq('order_id', assignModal.id);
+
+      // Tạo assignments mới
+      const inserts = assignList.map((a) => ({
+        order_id: assignModal.id,
+        vehicle_id: a.vehicleId,
+        driver_id: a.driverId,
+        boxes_assigned: a.boxes,
+        status: 'assigned',
+      }));
+
+      const { error: insertError } = await supabase
+        .from('order_assignments')
+        .insert(inserts);
+      if (insertError) throw insertError;
+
+      // Cập nhật trạng thái đơn → shipping
+      await supabase
         .from('orders')
         .update({
-          vehicle_id: selectedVehicle,
-          driver_id: selectedDriver,
           status: 'shipping',
+          // Giữ vehicle_id và driver_id đầu tiên cho tương thích
+          vehicle_id: assignList[0].vehicleId,
+          driver_id: assignList[0].driverId,
         })
         .eq('id', assignModal.id);
-      if (orderError) throw orderError;
 
-      const { error: vehicleError } = await supabase
-        .from('vehicles')
-        .update({
-          status: 'in_transit',
-          current_order_ids: [assignModal.id],
-          current_driver_id: selectedDriver,
-          current_route: `${assignModal.pickup_address} → ${assignModal.delivery_address}`,
-          departed_at: new Date().toISOString(),
-          estimated_return_at: new Date(
-            Date.now() + 12 * 60 * 60 * 1000
-          ).toISOString(),
-        })
-        .eq('id', selectedVehicle);
-      if (vehicleError) throw vehicleError;
+      // Cập nhật trạng thái từng xe
+      for (const a of assignList) {
+        await supabase
+          .from('vehicles')
+          .update({
+            status: 'in_transit',
+            current_order_ids: [assignModal.id],
+            current_driver_id: a.driverId,
+            current_route: `${assignModal.pickup_address} → ${assignModal.delivery_address}`,
+            departed_at: new Date().toISOString(),
+            estimated_return_at: new Date(
+              Date.now() + 12 * 60 * 60 * 1000
+            ).toISOString(),
+          })
+          .eq('id', a.vehicleId);
 
-      const { error: driverError } = await supabase
-        .from('drivers')
-        .update({
-          status: 'on_duty',
-          current_vehicle_id: selectedVehicle,
-        })
-        .eq('id', selectedDriver);
-      if (driverError) throw driverError;
+        await supabase
+          .from('drivers')
+          .update({
+            status: 'on_duty',
+            current_vehicle_id: a.vehicleId,
+          })
+          .eq('id', a.driverId);
 
-      const vehicle = vehicles.find((v) => v.id === selectedVehicle);
-      const driver = drivers.find((d) => d.id === selectedDriver);
-      await supabase
-        .from('vehicles')
-        .update({ total_trips: (vehicle?.total_trips || 0) + 1 })
-        .eq('id', selectedVehicle);
-      await supabase
-        .from('drivers')
-        .update({ total_trips: (driver?.total_trips || 0) + 1 })
-        .eq('id', selectedDriver);
+        // Tăng số chuyến
+        const vehicle = vehicles.find((v) => v.id === a.vehicleId);
+        const driver = drivers.find((d) => d.id === a.driverId);
+        await supabase
+          .from('vehicles')
+          .update({ total_trips: (vehicle?.total_trips || 0) + 1 })
+          .eq('id', a.vehicleId);
+        await supabase
+          .from('drivers')
+          .update({ total_trips: (driver?.total_trips || 0) + 1 })
+          .eq('id', a.driverId);
+      }
 
-      alert('Phân công xe và tài xế thành công!');
+      alert(`Phân công thành công ${assignList.length} xe!`);
       setAssignModal(null);
       fetchData();
     } catch (err) {
@@ -127,15 +222,16 @@ export default function OrdersPage() {
     }
   };
 
+  // Hủy phân công
   const handleUnassign = async (order) => {
-    if (!window.confirm('Hủy phân công xe và tài xế cho đơn này?')) return;
-    try {
-      await supabase
-        .from('orders')
-        .update({ vehicle_id: null, driver_id: null, status: 'pending' })
-        .eq('id', order.id);
+    if (!window.confirm('Hủy tất cả phân công xe và tài xế cho đơn này?'))
+      return;
 
-      if (order.vehicle_id) {
+    try {
+      const orderAssigns = assignments[order.id] || [];
+
+      // Reset từng xe và tài xế
+      for (const a of orderAssigns) {
         await supabase
           .from('vehicles')
           .update({
@@ -146,15 +242,29 @@ export default function OrdersPage() {
             departed_at: null,
             estimated_return_at: null,
           })
-          .eq('id', order.vehicle_id);
-      }
+          .eq('id', a.vehicle_id);
 
-      if (order.driver_id) {
         await supabase
           .from('drivers')
           .update({ status: 'available', current_vehicle_id: null })
-          .eq('id', order.driver_id);
+          .eq('id', a.driver_id);
       }
+
+      // Xóa assignments
+      await supabase
+        .from('order_assignments')
+        .delete()
+        .eq('order_id', order.id);
+
+      // Reset order
+      await supabase
+        .from('orders')
+        .update({
+          vehicle_id: null,
+          driver_id: null,
+          status: 'pending',
+        })
+        .eq('id', order.id);
 
       alert('Đã hủy phân công!');
       fetchData();
@@ -204,6 +314,32 @@ export default function OrdersPage() {
     shipping: orders.filter((o) => o.status === 'shipping').length,
     delivered: orders.filter((o) => o.status === 'delivered').length,
     cancelled: orders.filter((o) => o.status === 'cancelled').length,
+  };
+
+  // Xe nào available cho dropdown (trừ xe đã chọn ở hàng khác)
+  const getAvailableVehicles = (currentIndex) => {
+    const selectedIds = assignList
+      .filter((_, i) => i !== currentIndex)
+      .map((a) => a.vehicleId)
+      .filter(Boolean);
+    return vehicles.filter(
+      (v) =>
+        (v.status === 'idle' || assignList[currentIndex].vehicleId === v.id) &&
+        !selectedIds.includes(v.id)
+    );
+  };
+
+  const getAvailableDrivers = (currentIndex) => {
+    const selectedIds = assignList
+      .filter((_, i) => i !== currentIndex)
+      .map((a) => a.driverId)
+      .filter(Boolean);
+    return drivers.filter(
+      (d) =>
+        (d.status === 'available' ||
+          assignList[currentIndex].driverId === d.id) &&
+        !selectedIds.includes(d.id)
+    );
   };
 
   if (loading) {
@@ -285,8 +421,7 @@ export default function OrdersPage() {
               <th className="px-4 py-4 text-xs font-bold">Số xe cần</th>
               <th className="px-4 py-4 text-xs font-bold">Ngày gửi</th>
               <th className="px-4 py-4 text-xs font-bold">Giờ đặt</th>
-              <th className="px-4 py-4 text-xs font-bold">Xe</th>
-              <th className="px-4 py-4 text-xs font-bold">Tài xế</th>
+              <th className="px-4 py-4 text-xs font-bold">Xe / Tài xế</th>
               <th className="px-4 py-4 text-xs font-bold">Trạng thái</th>
               <th className="px-4 py-4 text-xs font-bold">Hành động</th>
             </tr>
@@ -295,7 +430,7 @@ export default function OrdersPage() {
             {filteredOrders.length === 0 ? (
               <tr>
                 <td
-                  colSpan="11"
+                  colSpan="10"
                   className="text-center py-10 text-gray-400 text-sm"
                 >
                   Không có đơn hàng nào
@@ -303,8 +438,7 @@ export default function OrdersPage() {
               </tr>
             ) : (
               filteredOrders.map((order) => {
-                const vehicle = vehicles.find((v) => v.id === order.vehicle_id);
-                const driver = drivers.find((d) => d.id === order.driver_id);
+                const orderAssigns = assignments[order.id] || [];
                 const vehiclesNeeded = Math.ceil((order.boxes || 0) / 12);
 
                 return (
@@ -345,44 +479,31 @@ export default function OrdersPage() {
                       {order.pickup_time || '—'}
                     </td>
                     <td className="px-4 py-4">
-                      {vehicle ? (
-                        <div className="flex items-center gap-2">
-                          <Truck className="w-4 h-4 text-agro-dark" />
-                          <div>
-                            <p className="font-semibold text-xs">
-                              {vehicle.plate_number}
-                            </p>
-                            <p
-                              className={`text-[10px] font-bold ${
-                                vehicle.status === 'in_transit'
-                                  ? 'text-yellow-600'
-                                  : 'text-green-600'
-                              }`}
-                            >
-                              {vehicle.status === 'in_transit'
-                                ? 'Đang chạy'
-                                : 'Rảnh'}
-                            </p>
-                          </div>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-gray-400 italic">
-                          Chưa phân công
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-4">
-                      {driver ? (
-                        <div className="flex items-center gap-2">
-                          <Users className="w-4 h-4 text-agro-dark" />
-                          <div>
-                            <p className="font-semibold text-xs">
-                              {driver.name}
-                            </p>
-                            <p className="text-[10px] text-gray-500">
-                              {driver.phone}
-                            </p>
-                          </div>
+                      {orderAssigns.length > 0 ? (
+                        <div className="space-y-1">
+                          {orderAssigns.map((a, idx) => {
+                            const v = vehicles.find((x) => x.id === a.vehicle_id);
+                            const d = drivers.find((x) => x.id === a.driver_id);
+                            return (
+                              <div
+                                key={a.id}
+                                className="flex items-center gap-1.5 text-[10px]"
+                              >
+                                <span className="bg-agro-dark text-white font-bold w-4 h-4 rounded-full flex items-center justify-center">
+                                  {idx + 1}
+                                </span>
+                                <span className="font-bold text-agro-dark">
+                                  {v?.plate_number}
+                                </span>
+                                <span className="text-gray-500">
+                                  · {d?.name}
+                                </span>
+                                <span className="text-gray-400">
+                                  ({a.boxes_assigned}t)
+                                </span>
+                              </div>
+                            );
+                          })}
                         </div>
                       ) : (
                         <span className="text-xs text-gray-400 italic">
@@ -410,7 +531,7 @@ export default function OrdersPage() {
                       </select>
                     </td>
                     <td className="px-4 py-4">
-                      {!order.vehicle_id ? (
+                      {orderAssigns.length === 0 ? (
                         <button
                           onClick={() => openAssignModal(order)}
                           className="bg-agro-yellow hover:bg-yellow-500 text-agro-dark font-bold px-3 py-2 rounded-lg text-xs whitespace-nowrap transition-colors"
@@ -434,27 +555,28 @@ export default function OrdersPage() {
         </table>
       </div>
 
-      {/* Modal phân công */}
+      {/* === MODAL PHÂN CÔNG NHIỀU XE === */}
       {assignModal && (
         <div
           className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
           onClick={() => setAssignModal(null)}
         >
           <div
-            className="bg-white rounded-2xl max-w-lg w-full shadow-2xl"
+            className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between p-5 border-b border-gray-100">
+            {/* Header */}
+            <div className="flex items-center justify-between p-5 border-b border-gray-100 sticky top-0 bg-white z-10">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-agro-yellow rounded-xl flex items-center justify-center">
                   <Truck className="w-5 h-5 text-agro-dark" />
                 </div>
                 <div>
                   <h3 className="font-bold text-agro-dark">
-                    Phân công xe & tài xế
+                    Phân công {assignList.length} xe
                   </h3>
                   <p className="text-xs text-gray-500">
-                    Đơn hàng {assignModal.order_code}
+                    Đơn {assignModal.order_code} · {assignModal.boxes} thùng
                   </p>
                 </div>
               </div>
@@ -466,12 +588,11 @@ export default function OrdersPage() {
               </button>
             </div>
 
+            {/* Body */}
             <div className="p-5 space-y-4">
+              {/* Thông tin đơn */}
               <div className="bg-agro-bg rounded-xl p-4 border border-gray-100">
-                <p className="text-xs font-bold text-gray-500 mb-2">
-                  THÔNG TIN ĐƠN HÀNG
-                </p>
-                <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
                     <p className="text-xs text-gray-500">Khách hàng</p>
                     <p className="font-semibold">{assignModal.customer_name}</p>
@@ -487,89 +608,90 @@ export default function OrdersPage() {
                       {assignModal.delivery_address}
                     </p>
                   </div>
-                  <div>
-                    <p className="text-xs text-gray-500">Ngày gửi</p>
-                    <p className="font-semibold text-xs">
-                      {assignModal.send_date
-                        ? new Date(assignModal.send_date).toLocaleDateString(
-                            'vi-VN'
-                          )
-                        : '—'}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500">Giờ đặt</p>
-                    <p className="font-semibold text-xs">
-                      {assignModal.pickup_time || '—'}
-                    </p>
-                  </div>
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-bold text-agro-dark mb-2">
-                  🚛 Chọn xe
-                </label>
-                <select
-                  value={selectedVehicle}
-                  onChange={(e) => setSelectedVehicle(e.target.value)}
-                  className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-agro-dark text-agro-dark font-medium"
-                >
-                  <option value="">-- Chọn xe --</option>
-                  {vehicles
-                    .filter(
-                      (v) => v.status === 'idle' || v.id === selectedVehicle
-                    )
-                    .map((v) => (
-                      <option key={v.id} value={v.id}>
-                        {v.plate_number} · {v.capacity_boxes} thùng ·{' '}
-                        {v.status === 'idle' ? 'Rảnh' : 'Đang chạy'}
-                      </option>
-                    ))}
-                </select>
+              {/* Danh sách phân công */}
+              <div className="space-y-3">
+                {assignList.map((assign, index) => (
+                  <div
+                    key={index}
+                    className="bg-white border-2 border-gray-100 rounded-xl p-4 hover:border-agro-yellow transition-colors"
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <span className="w-7 h-7 bg-agro-dark text-white rounded-full flex items-center justify-center font-bold text-sm">
+                          {index + 1}
+                        </span>
+                        <p className="font-bold text-agro-dark text-sm">
+                          Xe #{index + 1}
+                        </p>
+                        <span className="bg-green-50 text-green-700 px-2 py-0.5 rounded-full text-[10px] font-bold">
+                          {assign.boxes} thùng
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-600 mb-1.5">
+                          🚛 Chọn xe
+                        </label>
+                        <select
+                          value={assign.vehicleId}
+                          onChange={(e) =>
+                            updateAssignment(index, 'vehicleId', e.target.value)
+                          }
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-agro-dark text-agro-dark font-medium"
+                        >
+                          <option value="">-- Chọn xe --</option>
+                          {getAvailableVehicles(index).map((v) => (
+                            <option key={v.id} value={v.id}>
+                              {v.plate_number} ({v.capacity_boxes}t)
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-600 mb-1.5">
+                          👨‍✈️ Chọn tài xế
+                        </label>
+                        <select
+                          value={assign.driverId}
+                          onChange={(e) =>
+                            updateAssignment(index, 'driverId', e.target.value)
+                          }
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-agro-dark text-agro-dark font-medium"
+                        >
+                          <option value="">-- Chọn tài xế --</option>
+                          {getAvailableDrivers(index).map((d) => (
+                            <option key={d.id} value={d.id}>
+                              {d.name} · {d.phone}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
 
-              <div>
-                <label className="block text-sm font-bold text-agro-dark mb-2">
-                  👨‍✈️ Chọn tài xế
-                </label>
-                <select
-                  value={selectedDriver}
-                  onChange={(e) => setSelectedDriver(e.target.value)}
-                  className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-agro-dark text-agro-dark font-medium"
-                >
-                  <option value="">-- Chọn tài xế --</option>
-                  {drivers
-                    .filter(
-                      (d) =>
-                        d.status === 'available' || d.id === selectedDriver
-                    )
-                    .map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.name} · {d.phone} ·{' '}
-                        {d.years_experience > 0
-                          ? `${d.years_experience} năm KN`
-                          : 'Mới'}
-                      </option>
-                    ))}
-                </select>
-              </div>
-
-              {selectedVehicle && selectedDriver && (
+              {/* Thông báo */}
+              {assignList.every((a) => a.vehicleId && a.driverId) && (
                 <div className="bg-green-50 border border-green-100 rounded-xl p-3 flex items-start gap-2">
                   <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
                   <div className="text-xs text-green-800">
                     <p className="font-bold">Sẵn sàng phân công!</p>
                     <p>
-                      Đơn sẽ chuyển sang trạng thái "Đang vận chuyển" và xe sẽ
-                      được đánh dấu "Đang chạy".
+                      {assignList.length} xe sẽ được điều động cho đơn hàng này.
                     </p>
                   </div>
                 </div>
               )}
             </div>
 
-            <div className="flex gap-3 p-5 border-t border-gray-100">
+            {/* Footer */}
+            <div className="flex gap-3 p-5 border-t border-gray-100 sticky bottom-0 bg-white">
               <button
                 onClick={() => setAssignModal(null)}
                 className="flex-1 border-2 border-gray-300 hover:bg-gray-50 text-gray-700 font-bold py-3 rounded-xl transition-colors"
@@ -578,10 +700,13 @@ export default function OrdersPage() {
               </button>
               <button
                 onClick={handleAssign}
-                disabled={assigning || !selectedVehicle || !selectedDriver}
+                disabled={
+                  assigning ||
+                  assignList.some((a) => !a.vehicleId || !a.driverId)
+                }
                 className="flex-1 bg-agro-yellow hover:bg-yellow-500 text-agro-dark font-bold py-3 rounded-xl transition-colors disabled:opacity-50"
               >
-                {assigning ? 'Đang xử lý...' : 'Xác nhận phân công'}
+                {assigning ? 'Đang xử lý...' : `Xác nhận ${assignList.length} xe`}
               </button>
             </div>
           </div>

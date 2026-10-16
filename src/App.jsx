@@ -18,6 +18,7 @@ import DispatchPage from './pages/admin/DispatchPage';
 import BoxesPage from './pages/admin/BoxesPage';
 import IoTPage from './pages/admin/IoTPage';
 import RevenuePage from './pages/admin/RevenuePage';
+import PickupCoordinationPage from './pages/admin/PickupCoordinationPage';
 
 // Component bảo vệ Admin
 function ProtectedAdmin() {
@@ -32,7 +33,9 @@ function ComingSoon({ title }) {
       <div className="text-center">
         <div className="text-6xl mb-4">🚧</div>
         <h2 className="text-2xl font-bold text-agro-dark mb-2">{title}</h2>
-        <p className="text-gray-500 text-sm">Trang này đang được phát triển...</p>
+        <p className="text-gray-500 text-sm">
+          Trang này đang được phát triển...
+        </p>
       </div>
     </div>
   );
@@ -50,6 +53,7 @@ function App() {
           <Route path="drivers" element={<DriversPage />} />
           <Route path="dispatch" element={<DispatchPage />} />
           <Route path="boxes" element={<BoxesPage />} />
+          <Route path="pickup" element={<PickupCoordinationPage />} />
           <Route path="iot" element={<IoTPage />} />
           <Route path="revenue" element={<RevenuePage />} />
           <Route
