@@ -150,14 +150,19 @@ export default function BookingPage() {
                   <label className="block text-sm font-semibold mb-2 text-agro-dark">
                     Loại nông sản
                   </label>
-                  <input
+                  <select
                     name="product_type"
                     value={formData.product_type}
                     onChange={handleChange}
                     required
-                    className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-agro-dark outline-none text-agro-dark font-medium"
-                    placeholder="VD: Sầu riêng"
-                  />
+                    className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-agro-dark outline-none text-agro-dark font-medium bg-white"
+                  >
+                    <option value="">-- Chọn loại nông sản --</option>
+                    <option value="Sầu riêng">🍈 Sầu riêng</option>
+                    <option value="Dâu tây">🍓 Dâu tây</option>
+                    <option value="Bơ">🥑 Bơ</option>
+                    <option value="Xoài">🥭 Xoài</option>
+                  </select>
                 </div>
                 <div>
                   <label className="block text-sm font-semibold mb-2 text-agro-dark">
@@ -276,12 +281,38 @@ export default function BookingPage() {
                 {boxes > 0 ? `${boxes} thùng` : 'Chưa xác định'}
               </p>
             </div>
-            <div className="bg-green-50 rounded-2xl p-6 border border-green-100">
-              <div className="flex items-center gap-2 text-agro-dark font-bold mb-1">
-                <span>🌡️</span> Nhiệt độ mục tiêu: {product.minTemp}–
-                {product.maxTemp}°C
+
+            {/* ✅ Thẻ nhiệt độ động */}
+            <div
+              className={`rounded-2xl p-6 border transition-all ${
+                formData.product_type
+                  ? 'bg-green-50 border-green-200 shadow-sm'
+                  : 'bg-green-50/50 border-green-100'
+              }`}
+            >
+              <div className="flex items-center gap-2 text-agro-dark font-bold mb-2">
+                <span className="text-xl">🌡️</span>
+                <span>
+                  Nhiệt độ mục tiêu:{' '}
+                  <span className="text-agro-dark text-lg">
+                    {product.minTemp}–{product.maxTemp}°C
+                  </span>
+                </span>
               </div>
-              <p className="text-sm text-gray-500 font-medium">{product.note}</p>
+              {formData.product_type ? (
+                <>
+                  <p className="text-xs text-agro-dark font-bold mb-1">
+                    {product.name} · Bảo quản {product.shelfHours}h
+                  </p>
+                  <p className="text-sm text-gray-600 font-medium">
+                    {product.note}
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm text-gray-500 font-medium">
+                  Chọn loại nông sản để xem cấu hình làm lạnh phù hợp
+                </p>
+              )}
             </div>
           </div>
         </div>

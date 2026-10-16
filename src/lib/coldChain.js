@@ -12,6 +12,24 @@ export const PRODUCT_CATALOG = [
     note: 'Nhạy cảm với nhiệt độ cao, ưu tiên giao sớm.',
   },
   {
+    key: 'dau-tay',
+    name: 'Dâu tây',
+    aliases: ['dâu tây', 'dau tay', 'strawberry'],
+    minTemp: 0,
+    maxTemp: 4,
+    shelfHours: 24,
+    note: 'Cần lạnh sâu, dễ dập nát, tránh va đập.',
+  },
+  {
+    key: 'bo',
+    name: 'Bơ',
+    aliases: ['bơ', 'bo', 'avocado'],
+    minTemp: 5,
+    maxTemp: 8,
+    shelfHours: 48,
+    note: 'Chín nhanh ở nhiệt độ cao, cần mát ổn định.',
+  },
+  {
     key: 'xoai',
     name: 'Xoài',
     aliases: ['xoài', 'xoai', 'mango'],
@@ -70,8 +88,10 @@ export const PRODUCT_CATALOG = [
 export function matchProduct(text = '') {
   const raw = text.toLowerCase().trim();
   if (!raw) return PRODUCT_CATALOG.find((p) => p.key === 'default');
-  const found = PRODUCT_CATALOG.find((p) =>
-    p.aliases.some((alias) => raw.includes(alias)) || raw.includes(p.name.toLowerCase())
+  const found = PRODUCT_CATALOG.find(
+    (p) =>
+      p.aliases.some((alias) => raw.includes(alias)) ||
+      raw.includes(p.name.toLowerCase())
   );
   return found || PRODUCT_CATALOG.find((p) => p.key === 'default');
 }
@@ -97,7 +117,13 @@ function hashSeed(str = '') {
 }
 
 /** Mô hình nhiệt đơn giản: T tiến về nhiệt ngoài trời, tau phụ thuộc tốc độ & làm lạnh. */
-export function predictTemp({ currentTemp, outdoorTemp, speedKmh, minutesAhead, coolingOn = true }) {
+export function predictTemp({
+  currentTemp,
+  outdoorTemp,
+  speedKmh,
+  minutesAhead,
+  coolingOn = true,
+}) {
   const jamFactor = speedKmh < 18 ? 0.55 : speedKmh < 35 ? 0.8 : 1;
   const coolingFactor = coolingOn ? 1.4 : 0.7;
   const tau = 90 * jamFactor * coolingFactor;
@@ -116,10 +142,22 @@ export function spoilageProbability({ temp, product, minutesToBreach }) {
   return 0.06;
 }
 
-export function minutesUntilBreach({ currentTemp, outdoorTemp, speedKmh, maxTemp, coolingOn = true }) {
+export function minutesUntilBreach({
+  currentTemp,
+  outdoorTemp,
+  speedKmh,
+  maxTemp,
+  coolingOn = true,
+}) {
   if (currentTemp >= maxTemp) return 0;
   for (let m = 1; m <= 90; m += 1) {
-    const t = predictTemp({ currentTemp, outdoorTemp, speedKmh, minutesAhead: m, coolingOn });
+    const t = predictTemp({
+      currentTemp,
+      outdoorTemp,
+      speedKmh,
+      minutesAhead: m,
+      coolingOn,
+    });
     if (t >= maxTemp) return m;
   }
   return null;
@@ -135,7 +173,8 @@ export function simulateColdTelemetry(order) {
 
   if (!inTransit) {
     const forecast = [];
-    for (let m = -20; m <= 30; m += 5) forecast.push({ minute: m, temp: startTemp });
+    for (let m = -20; m <= 30; m += 5)
+      forecast.push({ minute: m, temp: startTemp });
     return {
       product,
       currentTemp: startTemp,
@@ -150,12 +189,15 @@ export function simulateColdTelemetry(order) {
       inRange: true,
       level: 'ok',
       title: 'Nhiệt độ trong ngưỡng',
-      advice: `Thùng đang ${order?.status === 'delivered' ? 'sau giao' : 'chờ xuất'} · giữ dải ${rangeLabel}.`,
+      advice: `Thùng đang ${
+        order?.status === 'delivered' ? 'sau giao' : 'chờ xuất'
+      } · giữ dải ${rangeLabel}.`,
       rangeLabel,
     };
   }
 
-  const isJam = seed % 3 === 0 || /hà nội|ha noi/i.test(order?.delivery_address || '');
+  const isJam =
+    seed % 3 === 0 || /hà nội|ha noi/i.test(order?.delivery_address || '');
   const speedKmh = isJam ? 8 + (seed % 7) : 38 + (seed % 12);
   const outdoorTemp = 32 + (seed % 8) + (isJam ? 2 : 0);
   const coolingOn = seed % 5 !== 0;
@@ -192,15 +234,24 @@ export function simulateColdTelemetry(order) {
     maxTemp: product.maxTemp,
     coolingOn,
   });
-  const risk = spoilageProbability({ temp: predicted30, product, minutesToBreach: breachIn });
-  const inRange = currentTemp >= product.minTemp && currentTemp <= product.maxTemp;
+  const risk = spoilageProbability({
+    temp: predicted30,
+    product,
+    minutesToBreach: breachIn,
+  });
+  const inRange =
+    currentTemp >= product.minTemp && currentTemp <= product.maxTemp;
   const rising = predicted30 - currentTemp > 0.8;
 
   let level = 'ok';
   let title = 'Nhiệt độ trong ngưỡng';
   let advice = `Duy trì dải ${product.minTemp}–${product.maxTemp}°C cho ${product.name}.`;
 
-  if (!inRange || risk >= 0.35 || (breachIn !== null && breachIn <= 25 && rising)) {
+  if (
+    !inRange ||
+    risk >= 0.35 ||
+    (breachIn !== null && breachIn <= 25 && rising)
+  ) {
     level = risk >= 0.5 ? 'critical' : 'warning';
     title =
       level === 'critical'
@@ -208,7 +259,9 @@ export function simulateColdTelemetry(order) {
         : `Cảnh báo: nhiệt độ có xu hướng tăng`;
     const reason = isJam
       ? `xe đang kẹt tuyến, nhiệt ngoài trời ${outdoorTemp}°C, tốc độ ~${speedKmh} km/h`
-      : `nhiệt ngoài trời ${outdoorTemp}°C và làm lạnh ${coolingOn ? 'đang yếu dần' : 'chưa ổn định'}`;
+      : `nhiệt ngoài trời ${outdoorTemp}°C và làm lạnh ${
+          coolingOn ? 'đang yếu dần' : 'chưa ổn định'
+        }`;
     advice = `Nhiệt độ dự kiến ${predicted30}°C trong 30 phút tới. Nguyên nhân: ${reason}. Đề xuất: bật chế độ làm lạnh khẩn cấp và ưu tiên giao lô này.`;
   }
 
