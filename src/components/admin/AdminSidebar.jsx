@@ -14,7 +14,6 @@ import {
   ChevronRight,
   Activity,
   DollarSign,
-  MapPin,
 } from 'lucide-react';
 import { countUnresolvedAlerts, subscribeToAlerts } from '../../services/iotService';
 
@@ -30,12 +29,6 @@ const menuGroups = [
     items: [
       { name: 'Tất cả đơn hàng', path: '/admin/orders', icon: Package },
       { name: 'Quản lý thùng', path: '/admin/boxes', icon: Recycle },
-      {
-        name: 'Điều phối thu hồi',
-        path: '/admin/pickup',
-        icon: MapPin,
-        highlight: true,
-      },
     ],
   },
   {
@@ -137,8 +130,6 @@ export default function AdminSidebar({ isOpen, onClose }) {
                       `flex items-center gap-3 px-5 py-2.5 text-sm font-medium transition-colors relative ${
                         isActive
                           ? 'bg-agro-yellow text-agro-dark border-l-4 border-white'
-                          : item.highlight
-                          ? 'text-agro-yellow hover:bg-white/5 border-l-4 border-transparent'
                           : 'text-white/70 hover:bg-white/5 hover:text-white border-l-4 border-transparent'
                       }`
                     }
