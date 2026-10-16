@@ -1,9 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import {
-  getOrderByCode,
-  subscribeToOrder,
-} from '../services/orderService';
+import { getOrderByCode, subscribeToOrder } from '../services/orderService';
 import {
   getOrderTemperatureHistory,
   formatRelativeTime,
@@ -22,27 +19,47 @@ import {
   Clock,
   TrendingUp,
 } from 'lucide-react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  Popup,
+  Polyline,
+  useMap,
+} from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
 // Fix Leaflet marker icon
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+  iconRetinaUrl:
+    'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
   iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
-// Custom icon cho marker
+// Custom icon
 const createIcon = (color, label) => {
   return L.divIcon({
     className: 'custom-marker',
-    html: `<div style="background:${color}; color:white; width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:14px; border:3px solid white; box-shadow:0 2px 6px rgba(0,0,0,0.3);">${label}</div>`,
-    iconSize: [32, 32],
-    iconAnchor: [16, 16],
+    html: `<div style="background:${color}; color:white; width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:14px; border:3px solid white; box-shadow:0 2px 6px rgba(0,0,0,0.3);">${label}</div>`,
+    iconSize: [36, 36],
+    iconAnchor: [18, 18],
   });
 };
+
+// Component fit map bounds
+function FitBounds({ points }) {
+  const map = useMap();
+  useEffect(() => {
+    if (points && points.length > 0) {
+      const bounds = L.latLngBounds(points.map((p) => [p.lat, p.lng]));
+      map.fitBounds(bounds, { padding: [50, 50] });
+    }
+  }, [points, map]);
+  return null;
+}
 
 export default function TrackingPage() {
   const { orderCode } = useParams();
@@ -52,7 +69,11 @@ export default function TrackingPage() {
   const [showDetail, setShowDetail] = useState(false);
   const [tempHistory, setTempHistory] = useState([]);
   const [tempLoading, setTempLoading] = useState(false);
+  const [roadPath, setRoadPath] = useState([]);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [routeInfo, setRouteInfo] = useState(null);
 
+  // Fetch order
   useEffect(() => {
     if (!orderCode) {
       setLoading(false);
@@ -64,7 +85,6 @@ export default function TrackingPage() {
         const data = await getOrderByCode(orderCode);
         setOrder(data);
 
-        // Lấy lịch sử nhiệt độ
         if (data) {
           setTempLoading(true);
           const tempData = await getOrderTemperatureHistory(data.id);
@@ -72,7 +92,7 @@ export default function TrackingPage() {
           setTempLoading(false);
         }
       } catch (err) {
-        console.error(err);
+        console.error('Lỗi fetch order:', err);
       } finally {
         setLoading(false);
       }
@@ -85,6 +105,56 @@ export default function TrackingPage() {
     return () => subscription.unsubscribe();
   }, [orderCode]);
 
+  // Fetch OSRM route khi có tọa độ
+  useEffect(() => {
+    if (!order) return;
+
+    const pickupLat = order.pickup_lat;
+    const pickupLng = order.pickup_lng;
+    const deliveryLat = order.delivery_lat;
+    const deliveryLng = order.delivery_lng;
+
+    if (!pickupLat || !pickupLng || !deliveryLat || !deliveryLng) {
+      return;
+    }
+
+    const fetchRoute = async () => {
+      setRouteLoading(true);
+      try {
+        const coords = `${pickupLng},${pickupLat};${deliveryLng},${deliveryLat}`;
+        const res = await fetch(
+          `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`
+        );
+        const data = await res.json();
+
+        if (data.routes && data.routes[0]) {
+          const route = data.routes[0];
+          // Convert [lng, lat] → [lat, lng]
+          const coordsArray = route.geometry.coordinates.map((c) => [
+            c[1],
+            c[0],
+          ]);
+          setRoadPath(coordsArray);
+          setRouteInfo({
+            distance: (route.distance / 1000).toFixed(1),
+            duration: Math.round(route.duration / 60),
+          });
+        }
+      } catch (err) {
+        console.error('Lỗi OSRM:', err);
+        // Fallback: đường thẳng
+        setRoadPath([
+          [pickupLat, pickupLng],
+          [deliveryLat, deliveryLng],
+        ]);
+      } finally {
+        setRouteLoading(false);
+      }
+    };
+
+    fetchRoute();
+  }, [order]);
+
   const steps = [
     { key: 'pending', label: 'Đã đặt', icon: Package },
     { key: 'packed', label: 'Đã đóng hàng', icon: Package },
@@ -94,7 +164,13 @@ export default function TrackingPage() {
 
   const currentStepIndex = steps.findIndex((s) => s.key === order?.status);
 
-  if (loading) return <div className="text-center py-20">Đang tải...</div>;
+  if (loading) {
+    return (
+      <div className="text-center py-20 font-sans text-agro-dark">
+        Đang tải...
+      </div>
+    );
+  }
 
   if (!orderCode) {
     return (
@@ -120,17 +196,24 @@ export default function TrackingPage() {
     );
   }
 
-  if (!order)
-    return <div className="text-center py-20 font-sans">Không tìm thấy đơn hàng!</div>;
+  if (!order) {
+    return (
+      <div className="text-center py-20 font-sans text-agro-dark">
+        Không tìm thấy đơn hàng!
+      </div>
+    );
+  }
 
-  // Tính nhiệt độ hiện tại
+  // Nhiệt độ hiện tại
   const latestTemp =
-    tempHistory.length > 0 ? tempHistory[tempHistory.length - 1].temperature : null;
+    tempHistory.length > 0
+      ? tempHistory[tempHistory.length - 1].temperature
+      : null;
   const isTempSafe =
     latestTemp !== null && latestTemp >= TEMP_MIN && latestTemp <= TEMP_MAX;
   const hasWarningTemp = latestTemp !== null && !isTempSafe;
 
-  // Điểm lấy hàng và giao hàng cho bản đồ
+  // Tọa độ
   const pickupPoint = {
     lat: order.pickup_lat || 12.6662,
     lng: order.pickup_lng || 108.0382,
@@ -226,9 +309,20 @@ export default function TrackingPage() {
               <h3 className="font-bold text-agro-dark mb-4">
                 Thông tin chuyến hàng
               </h3>
-              <p className="text-sm text-gray-600 mb-4 font-medium">
+              <p className="text-sm text-gray-600 mb-1 font-medium">
                 {order.product_type} | {order.weight} kg | {order.boxes} thùng
               </p>
+              {order.send_date && (
+                <p className="text-sm text-gray-600 mb-1 font-medium">
+                  📅 Ngày gửi:{' '}
+                  {new Date(order.send_date).toLocaleDateString('vi-VN')}
+                </p>
+              )}
+              {order.pickup_time && (
+                <p className="text-sm text-gray-600 mb-4 font-medium">
+                  🕒 Giờ đặt: {order.pickup_time}
+                </p>
+              )}
               <button
                 onClick={() => setShowDetail(true)}
                 className="inline-flex items-center gap-2 border-2 border-agro-dark text-agro-dark font-bold px-6 py-2 rounded-xl hover:bg-agro-dark hover:text-white transition-colors"
@@ -247,14 +341,14 @@ export default function TrackingPage() {
               <div className="mt-4 pt-4 border-t border-green-200 flex items-center gap-2 text-agro-dark">
                 <Thermometer className="w-5 h-5" />
                 <span className="font-bold">
-                  Nhiệt độ: {order.temperature || 15}°C (13-15°C)
+                  Nhiệt độ: {latestTemp ? latestTemp.toFixed(1) : order.temperature || 15}°C (13-15°C)
                 </span>
               </div>
             </div>
           </div>
         </div>
 
-        {/* === NHIỆT ĐỘ HIỆN TẠI (chỉ hiển thị khi đang shipping) === */}
+        {/* === NHIỆT ĐỘ REALTIME (chỉ hiển thị khi shipping) === */}
         {order.status === 'shipping' && (
           <div
             className={`rounded-2xl p-6 shadow-sm border-2 ${
@@ -272,7 +366,10 @@ export default function TrackingPage() {
               </h3>
               {tempHistory.length > 0 && (
                 <span className="text-xs text-gray-500 font-medium">
-                  Cập nhật {formatRelativeTime(tempHistory[tempHistory.length - 1].created_at)}
+                  Cập nhật{' '}
+                  {formatRelativeTime(
+                    tempHistory[tempHistory.length - 1].created_at
+                  )}
                 </span>
               )}
             </div>
@@ -308,7 +405,8 @@ export default function TrackingPage() {
                           {latestTemp > TEMP_MAX
                             ? 'vượt ngưỡng trên'
                             : 'dưới ngưỡng dưới'}{' '}
-                          ({TEMP_MIN}–{TEMP_MAX}°C). Cần kiểm tra hệ thống làm lạnh!
+                          ({TEMP_MIN}–{TEMP_MAX}°C). Cần kiểm tra hệ thống làm
+                          lạnh!
                         </p>
                       </div>
                     </div>
@@ -329,19 +427,43 @@ export default function TrackingPage() {
                 </div>
               </div>
             ) : (
-              <p className="text-center text-gray-400 text-sm py-4 italic">
-                Chưa có dữ liệu nhiệt độ cho chuyến hàng này.
-              </p>
+              <div className="text-center py-6">
+                <p className="text-sm text-gray-500 italic">
+                  Chưa có dữ liệu nhiệt độ cho chuyến hàng này.
+                </p>
+                <p className="text-xs text-gray-400 mt-2">
+                  Dữ liệu sẽ xuất hiện khi thiết bị IoT gửi mẫu đầu tiên.
+                </p>
+              </div>
             )}
           </div>
         )}
 
         {/* === BẢN ĐỒ LỘ TRÌNH === */}
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
-          <h3 className="font-bold text-agro-dark mb-4 flex items-center gap-2">
-            🗺️ Bản đồ lộ trình
-          </h3>
-          <div className="w-full h-[400px] rounded-xl overflow-hidden border border-gray-200">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-bold text-agro-dark flex items-center gap-2">
+              🗺️ Bản đồ lộ trình
+            </h3>
+            {routeInfo && (
+              <div className="flex items-center gap-4 text-xs font-semibold text-gray-600">
+                <span className="flex items-center gap-1">
+                  📏 {routeInfo.distance} km
+                </span>
+                <span className="flex items-center gap-1">
+                  ⏱️ {routeInfo.duration} phút
+                </span>
+              </div>
+            )}
+          </div>
+
+          {routeLoading && (
+            <div className="bg-agro-bg rounded-xl p-4 mb-4 text-center text-sm text-gray-500">
+              🚗 Đang tính đường đi tối ưu...
+            </div>
+          )}
+
+          <div className="w-full h-[450px] rounded-xl overflow-hidden border border-gray-200">
             <MapContainer
               center={mapCenter}
               zoom={6}
@@ -351,82 +473,130 @@ export default function TrackingPage() {
                 attribution='&copy; <a href="https://www.maptiler.com/copyright/">MapTiler</a>'
                 url={`https://api.maptiler.com/maps/outdoor-v2/{z}/{x}/{y}.png?key=0kgv1m784H4kd86re01y`}
               />
-              <Polyline
-                positions={[
-                  [pickupPoint.lat, pickupPoint.lng],
-                  [deliveryPoint.lat, deliveryPoint.lng],
-                ]}
-                pathOptions={{
-                  color: '#0F4C3A',
-                  weight: 4,
-                  opacity: 0.7,
-                  dashArray: '8, 8',
-                }}
-              />
+
+              {/* Vẽ đường đi thực tế theo đường bộ (OSRM) */}
+              {roadPath.length > 0 && (
+                <Polyline
+                  positions={roadPath}
+                  pathOptions={{
+                    color: '#0F4C3A',
+                    weight: 5,
+                    opacity: 0.8,
+                  }}
+                />
+              )}
+
+              {/* Fallback: đường thẳng nếu OSRM fail */}
+              {roadPath.length === 0 && (
+                <Polyline
+                  positions={[
+                    [pickupPoint.lat, pickupPoint.lng],
+                    [deliveryPoint.lat, deliveryPoint.lng],
+                  ]}
+                  pathOptions={{
+                    color: '#0F4C3A',
+                    weight: 3,
+                    opacity: 0.6,
+                    dashArray: '8, 8',
+                  }}
+                />
+              )}
+
+              {/* Marker A - Điểm lấy hàng */}
               <Marker
                 position={[pickupPoint.lat, pickupPoint.lng]}
                 icon={createIcon('#4CAF50', 'A')}
               >
                 <Popup>
                   <div className="font-sans">
-                    <p className="font-bold text-agro-dark">📍 Điểm lấy hàng</p>
+                    <p className="font-bold text-agro-dark">
+                      📍 Điểm lấy hàng
+                    </p>
                     <p className="text-xs text-gray-600 mt-1">
                       {pickupPoint.label}
+                    </p>
+                    <p className="text-[10px] text-gray-400 mt-1">
+                      Tọa độ: {pickupPoint.lat.toFixed(4)},{' '}
+                      {pickupPoint.lng.toFixed(4)}
                     </p>
                   </div>
                 </Popup>
               </Marker>
+
+              {/* Marker B - Điểm giao hàng */}
               <Marker
                 position={[deliveryPoint.lat, deliveryPoint.lng]}
                 icon={createIcon('#0F4C3A', 'B')}
               >
                 <Popup>
                   <div className="font-sans">
-                    <p className="font-bold text-agro-dark">🎯 Điểm giao hàng</p>
+                    <p className="font-bold text-agro-dark">
+                      🎯 Điểm giao hàng
+                    </p>
                     <p className="text-xs text-gray-600 mt-1">
                       {deliveryPoint.label}
+                    </p>
+                    <p className="text-[10px] text-gray-400 mt-1">
+                      Tọa độ: {deliveryPoint.lat.toFixed(4)},{' '}
+                      {deliveryPoint.lng.toFixed(4)}
                     </p>
                   </div>
                 </Popup>
               </Marker>
+
+              {/* Tự động fit bounds */}
+              <FitBounds points={mapPoints} />
             </MapContainer>
           </div>
+
           <div className="flex items-center gap-4 mt-4 text-xs font-medium text-gray-600">
             <div className="flex items-center gap-1.5">
               <span className="w-3 h-3 rounded-full bg-agro-green border border-white shadow"></span>
-              Điểm lấy hàng
+              Điểm lấy hàng (A)
             </div>
             <div className="flex items-center gap-1.5">
               <span className="w-3 h-3 rounded-full bg-agro-dark border border-white shadow"></span>
-              Điểm giao hàng
+              Điểm giao hàng (B)
             </div>
+            {routeInfo && (
+              <div className="flex items-center gap-1.5 ml-auto text-agro-dark font-semibold">
+                <span>🛣️ Lộ trình theo đường bộ (OSRM)</span>
+              </div>
+            )}
           </div>
         </div>
 
         {/* === LỊCH SỬ NHIỆT ĐỘ === */}
-        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-bold text-agro-dark flex items-center gap-2">
-              <TrendingUp className="w-5 h-5" />
-              Lịch sử nhiệt độ từ lúc bắt đầu giao
-            </h3>
-            <span className="text-xs text-gray-500 font-medium">
-              {tempHistory.length} điểm dữ liệu
-            </span>
-          </div>
+        {order.status === 'shipping' && (
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-agro-dark flex items-center gap-2">
+                <TrendingUp className="w-5 h-5" />
+                Lịch sử nhiệt độ từ lúc bắt đầu giao
+              </h3>
+              <span className="text-xs text-gray-500 font-medium">
+                {tempHistory.length} điểm dữ liệu
+              </span>
+            </div>
 
-          {tempLoading ? (
-            <p className="text-center text-gray-400 py-6 text-sm">
-              Đang tải lịch sử...
-            </p>
-          ) : tempHistory.length < 2 ? (
-            <p className="text-center text-gray-400 py-6 text-sm italic">
-              Chưa đủ dữ liệu để hiển thị biểu đồ.
-            </p>
-          ) : (
-            <TempHistoryChart data={tempHistory} />
-          )}
-        </div>
+            {tempLoading ? (
+              <p className="text-center text-gray-400 py-6 text-sm">
+                Đang tải lịch sử...
+              </p>
+            ) : tempHistory.length < 2 ? (
+              <div className="text-center py-8">
+                <p className="text-sm text-gray-500 italic">
+                  Chưa đủ dữ liệu để hiển thị biểu đồ.
+                </p>
+                <p className="text-xs text-gray-400 mt-2">
+                  Cần ít nhất 2 mẫu nhiệt độ để vẽ biểu đồ.
+                </p>
+              </div>
+            ) : (
+              <TempHistoryChart data={tempHistory} />
+            )}
+          </div>
+        )}
       </div>
 
       {/* MODAL CHI TIẾT */}
@@ -518,7 +688,6 @@ function TempHistoryChart({ data, minTemp = 13, maxTemp = 15 }) {
   const safeY1 = y(maxTemp);
   const safeY2 = y(minTemp);
 
-  // Tìm các điểm cảnh báo
   const warningPoints = data
     .map((d, i) => ({ ...d, i }))
     .filter((d) => d.temperature < minTemp || d.temperature > maxTemp);
@@ -526,7 +695,6 @@ function TempHistoryChart({ data, minTemp = 13, maxTemp = 15 }) {
   return (
     <div className="w-full overflow-x-auto">
       <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-56 min-w-[600px]">
-        {/* Vùng an toàn */}
         <rect
           x={pad.left}
           y={safeY1}
@@ -556,7 +724,6 @@ function TempHistoryChart({ data, minTemp = 13, maxTemp = 15 }) {
           opacity="0.6"
         />
 
-        {/* Grid ngang */}
         {[lo, (lo + hi) / 2, hi].map((t, i) => (
           <g key={i}>
             <line
@@ -580,7 +747,6 @@ function TempHistoryChart({ data, minTemp = 13, maxTemp = 15 }) {
           </g>
         ))}
 
-        {/* Line */}
         <path
           d={linePath}
           fill="none"
@@ -589,7 +755,6 @@ function TempHistoryChart({ data, minTemp = 13, maxTemp = 15 }) {
           strokeLinejoin="round"
         />
 
-        {/* Điểm cảnh báo */}
         {warningPoints.map((d) => (
           <g key={d.i}>
             <circle
@@ -613,7 +778,6 @@ function TempHistoryChart({ data, minTemp = 13, maxTemp = 15 }) {
           </g>
         ))}
 
-        {/* Trục X - thời gian */}
         {data.length > 1 &&
           [0, Math.floor(data.length / 2), data.length - 1].map((i) => (
             <text
