@@ -1,9 +1,7 @@
 import { supabase } from '../lib/supabaseClient';
 
 // === LẤY DANH SÁCH ĐƠN CẦN THU HỒI THÙNG ===
-// Điều kiện: đơn đã giao (delivered), có thùng ở trạng thái "delivered" (chờ thu hồi)
 export const getOrdersNeedingPickup = async () => {
-  // Lấy các đơn đã giao
   const { data: orders, error: orderError } = await supabase
     .from('orders')
     .select('*')
@@ -12,21 +10,18 @@ export const getOrdersNeedingPickup = async () => {
   if (orderError) throw orderError;
   if (!orders || orders.length === 0) return [];
 
-  // Lấy tất cả thùng chờ thu hồi
   const { data: boxes, error: boxError } = await supabase
     .from('boxes')
     .select('*')
     .in('status', ['delivered', 'waiting_return']);
   if (boxError) throw boxError;
 
-  // Gom nhóm thùng theo order_id
   const boxMap = {};
   (boxes || []).forEach((b) => {
     if (!boxMap[b.order_id]) boxMap[b.order_id] = [];
     boxMap[b.order_id].push(b);
   });
 
-  // Gắn số thùng cần thu hồi vào mỗi đơn
   return orders
     .map((order) => {
       const orderBoxes = boxMap[order.id] || [];
@@ -66,7 +61,7 @@ export const createPickupTrip = async ({
   driverId,
   scheduledDate,
   scheduledTime,
-  points, // [{ orderId, orderCode, lat, lng, address, boxes }]
+  points,
   notes,
 }) => {
   const tripCode = `PT-${new Date().getFullYear()}-${Math.floor(
@@ -74,8 +69,6 @@ export const createPickupTrip = async ({
   )}`;
 
   const totalBoxes = points.reduce((sum, p) => sum + (p.boxes || 0), 0);
-
-  // Ước tính thời gian: 30 phút/điểm + thời gian di chuyển
   const estimatedDurationMinutes = points.length * 30 + 60;
 
   // 1. Tạo trip
@@ -88,11 +81,12 @@ export const createPickupTrip = async ({
         driver_id: driverId,
         scheduled_date: scheduledDate,
         scheduled_time: scheduledTime,
-        status: 'scheduled',
+        status: 'in_progress',
         total_boxes: totalBoxes,
         total_points: points.length,
         estimated_duration_minutes: estimatedDurationMinutes,
         notes: notes || '',
+        started_at: new Date().toISOString(),
       },
     ])
     .select()
@@ -140,12 +134,12 @@ export const createPickupTrip = async ({
     })
     .eq('id', driverId);
 
-  // 5. Cập nhật các thùng → waiting_return
+  // 5. Cập nhật các thùng → picking_up (đang thu hồi)
   const boxIds = points.flatMap((p) => p.boxIds || []);
   if (boxIds.length > 0) {
     await supabase
       .from('boxes')
-      .update({ status: 'waiting_return' })
+      .update({ status: 'picking_up' })
       .in('id', boxIds);
   }
 
@@ -199,7 +193,6 @@ export const updateTripStatus = async (tripId, status) => {
 
 // === ĐÁNH DẤU ĐIỂM ĐÃ THU HỒI ===
 export const markPointPickedUp = async (pointId, tripId) => {
-  // Cập nhật điểm
   const { error: pointError } = await supabase
     .from('pickup_trip_points')
     .update({
@@ -209,7 +202,6 @@ export const markPointPickedUp = async (pointId, tripId) => {
     .eq('id', pointId);
   if (pointError) throw pointError;
 
-  // Lấy order_id của điểm này
   const { data: point } = await supabase
     .from('pickup_trip_points')
     .select('order_id')
@@ -217,26 +209,22 @@ export const markPointPickedUp = async (pointId, tripId) => {
     .single();
 
   if (point?.order_id) {
-    // Cập nhật các thùng của đơn này → at_hub
     await supabase
       .from('boxes')
-      .update({ status: 'at_hub' })
+      .update({ status: 'ready' })
       .eq('order_id', point.order_id)
-      .in('status', ['waiting_return', 'delivered']);
+      .in('status', ['picking_up', 'waiting_return', 'delivered']);
   }
 
-  // Kiểm tra xem còn điểm nào pending không
   const { data: remaining } = await supabase
     .from('pickup_trip_points')
     .select('id')
     .eq('trip_id', tripId)
     .eq('status', 'pending');
 
-  // Nếu hết điểm → trip completed
   if (!remaining || remaining.length === 0) {
     await updateTripStatus(tripId, 'completed');
 
-    // Lấy trip để reset xe + tài xế
     const { data: trip } = await supabase
       .from('pickup_trips')
       .select('vehicle_id, driver_id')
@@ -271,4 +259,78 @@ export const markBoxesReady = async (boxIds) => {
     .update({ status: 'ready' })
     .in('id', boxIds);
   if (error) throw error;
+};
+
+// === ĐÁNH DẤU ĐÃ THU HỒI CHO 1 ĐƠN ===
+export const markOrderPickupDone = async (orderId) => {
+  // 1. Cập nhật tất cả thùng của đơn → ready
+  const { data: boxes } = await supabase
+    .from('boxes')
+    .select('id')
+    .eq('order_id', orderId)
+    .in('status', ['picking_up', 'waiting_return', 'delivered']);
+
+  if (boxes && boxes.length > 0) {
+    const boxIds = boxes.map((b) => b.id);
+    await supabase.from('boxes').update({ status: 'ready' }).in('id', boxIds);
+  }
+
+  // 2. Tìm trip liên quan và hoàn thành
+  const { data: trips } = await supabase
+    .from('pickup_trips')
+    .select('*')
+    .in('status', ['in_progress', 'scheduled']);
+
+  if (trips && trips.length > 0) {
+    for (const trip of trips) {
+      // Đánh dấu tất cả points của trip này là picked_up
+      await supabase
+        .from('pickup_trip_points')
+        .update({
+          status: 'picked_up',
+          picked_up_at: new Date().toISOString(),
+        })
+        .eq('trip_id', trip.id)
+        .eq('order_id', orderId);
+
+      // Kiểm tra còn điểm pending không
+      const { data: remaining } = await supabase
+        .from('pickup_trip_points')
+        .select('id')
+        .eq('trip_id', trip.id)
+        .eq('status', 'pending');
+
+      // Nếu không còn điểm nào → hoàn thành trip
+      if (!remaining || remaining.length === 0) {
+        await supabase
+          .from('pickup_trips')
+          .update({
+            status: 'completed',
+            completed_at: new Date().toISOString(),
+          })
+          .eq('id', trip.id);
+
+        // Reset xe
+        if (trip.vehicle_id) {
+          await supabase
+            .from('vehicles')
+            .update({
+              status: 'idle',
+              current_driver_id: null,
+              current_route: null,
+              departed_at: null,
+              estimated_return_at: null,
+            })
+            .eq('id', trip.vehicle_id);
+        }
+        // Reset tài xế
+        if (trip.driver_id) {
+          await supabase
+            .from('drivers')
+            .update({ status: 'available', current_vehicle_id: null })
+            .eq('id', trip.driver_id);
+        }
+      }
+    }
+  }
 };

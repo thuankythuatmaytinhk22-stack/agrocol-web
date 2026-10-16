@@ -4,10 +4,6 @@ import {
   getPickupVehicles,
   getAvailableDriversForPickup,
   createPickupTrip,
-  getAllPickupTrips,
-  getPickupTripDetails,
-  updateTripStatus,
-  markPointPickedUp,
 } from '../../services/pickupService';
 import {
   Recycle,
@@ -15,19 +11,16 @@ import {
   MapPin,
   Package,
   Truck,
-  Users,
   X,
   CheckCircle,
   Clock,
-  AlertTriangle,
   Eye,
   User,
   Phone,
 } from 'lucide-react';
 
 export default function BoxesPage() {
-  const [orders, setOrders] = useState([]); // Đơn hàng có thùng cần thu hồi
-  const [trips, setTrips] = useState([]); // Chuyến thu hồi
+  const [orders, setOrders] = useState([]);
   const [pickupVehicles, setPickupVehicles] = useState([]);
   const [availableDrivers, setAvailableDrivers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -47,7 +40,6 @@ export default function BoxesPage() {
 
   // Modal chi tiết
   const [detailModal, setDetailModal] = useState(null);
-  const [detailPoints, setDetailPoints] = useState([]);
 
   useEffect(() => {
     fetchData();
@@ -55,27 +47,24 @@ export default function BoxesPage() {
 
   const fetchData = async () => {
     try {
-      // Lấy tất cả đơn hàng
+      // Lấy đơn hàng đã giao hoặc đang thu hồi
       const { data: orderData } = await supabase
         .from('orders')
         .select('*')
+        .in('status', ['delivered', 'shipping'])
         .order('created_at', { ascending: false });
 
-      // Lấy tất cả thùng
-      const { data: boxesData } = await supabase
-        .from('boxes')
-        .select('*');
+      // Lấy thùng
+      const { data: boxesData } = await supabase.from('boxes').select('*');
 
-      // Lấy tất cả chuyến thu hồi
-      const [vehiclesData, driversData, tripsData] = await Promise.all([
+      // Lấy chuyến thu hồi
+      const [vehiclesData, driversData] = await Promise.all([
         getPickupVehicles(),
         getAvailableDriversForPickup(),
-        getAllPickupTrips(),
       ]);
 
-      setPickupVehicles(vehiclesData);
+      setPickupVehicles(vehiclesData.filter((v) => v.status === 'idle'));
       setAvailableDrivers(driversData);
-      setTrips(tripsData);
 
       // Gộp thùng theo order_id
       const boxMap = {};
@@ -84,33 +73,38 @@ export default function BoxesPage() {
         boxMap[b.order_id].push(b);
       });
 
-      // Gắn thông tin thùng vào đơn hàng
+      // Gắn thông tin thùng vào đơn
       const ordersWithBoxes = (orderData || [])
         .map((o) => {
           const orderBoxes = boxMap[o.id] || [];
-          const waitingBoxes = orderBoxes.filter(
-            (b) => b.status === 'delivered' || b.status === 'waiting_return'
+          // Chỉ tính các thùng cần thu hồi (delivered, waiting_return, picking_up)
+          const pickupBoxes = orderBoxes.filter((b) =>
+            ['delivered', 'waiting_return', 'picking_up'].includes(b.status)
           );
-          const atHubBoxes = orderBoxes.filter((b) => b.status === 'at_hub');
-          const readyBoxes = orderBoxes.filter((b) => b.status === 'ready');
+          const doneBoxes = orderBoxes.filter((b) =>
+            ['at_hub', 'ready'].includes(b.status)
+          );
 
-          // Tìm chuyến thu hồi liên quan
-          const relatedTrip = tripsData.find(
-            (t) => t.status !== 'completed' && t.status !== 'cancelled'
-          );
+          // Phân loại theo trạng thái
+          const waiting = pickupBoxes.filter((b) =>
+            ['delivered', 'waiting_return'].includes(b.status)
+          ).length;
+          const pickingUp = pickupBoxes.filter(
+            (b) => b.status === 'picking_up'
+          ).length;
+          const done = doneBoxes.length;
 
           return {
             ...o,
             total_boxes: orderBoxes.length,
-            waiting_boxes: waitingBoxes.length,
-            at_hub_boxes: atHubBoxes.length,
-            ready_boxes: readyBoxes.length,
-            box_ids: orderBoxes.map((b) => b.id),
-            waiting_box_ids: waitingBoxes.map((b) => b.id),
-            trip: relatedTrip,
+            waiting_boxes: waiting,
+            picking_up_boxes: pickingUp,
+            done_boxes: done,
+            waiting_box_ids: pickupBoxes
+              .filter((b) => ['delivered', 'waiting_return'].includes(b.status))
+              .map((b) => b.id),
           };
         })
-        // Chỉ hiển thị đơn có thùng đang giao hoặc cần thu hồi
         .filter((o) => o.total_boxes > 0);
 
       setOrders(ordersWithBoxes);
@@ -121,24 +115,28 @@ export default function BoxesPage() {
     }
   };
 
-  // Tính trạng thái thu hồi của đơn
+  // Lấy trạng thái thu hồi của đơn
   const getPickupStatus = (order) => {
-    // Tìm chuyến thu hồi có chứa đơn này
-    const relatedTrip = trips.find((t) => {
-      if (t.status === 'cancelled') return false;
-      return true; // Sẽ check chi tiết bên dưới nếu cần
-    });
-
-    if (order.ready_boxes === order.total_boxes) {
-      return { level: 'ready', label: 'Đã thu hồi', color: 'green' };
+    if (order.total_boxes === 0) {
+      return { level: 'empty', label: 'Chưa có thùng', color: 'gray' };
     }
-    if (order.at_hub_boxes > 0) {
-      return { level: 'at_hub', label: 'Đã về Hub', color: 'blue' };
-    }
-    if (order.waiting_boxes > 0) {
+    if (order.waiting_boxes > 0 && order.picking_up_boxes === 0) {
       return { level: 'waiting', label: 'Chờ thu hồi', color: 'yellow' };
     }
-    return { level: 'delivered', label: 'Đã giao', color: 'green' };
+    if (order.picking_up_boxes > 0) {
+      return { level: 'picking_up', label: 'Đang thu hồi', color: 'blue' };
+    }
+    if (order.done_boxes === order.total_boxes) {
+      return { level: 'done', label: 'Đã thu hồi', color: 'green' };
+    }
+    if (order.done_boxes > 0) {
+      return {
+        level: 'partial',
+        label: `Đã thu ${order.done_boxes}/${order.total_boxes}`,
+        color: 'green',
+      };
+    }
+    return { level: 'unknown', label: 'Không xác định', color: 'gray' };
   };
 
   // Mở modal phân công
@@ -191,40 +189,81 @@ export default function BoxesPage() {
     }
   };
 
-  // Xem chi tiết
-  const viewDetails = (order) => {
-    setDetailModal(order);
-    // Tìm trip points
-    const boxIds = order.waiting_box_ids;
-    // Vì đơn giản nên chỉ hiển thị box_ids
-    setDetailPoints(
-      (order.box_ids || []).map((id) => ({ box_id: id, status: 'pending' }))
-    );
+  // Đánh dấu đã thu hồi (cho đơn đang thu hồi)
+  const handleMarkDone = async (order) => {
+    if (
+      !window.confirm(
+        `Xác nhận đã thu hồi ${order.picking_up_boxes} thùng của đơn ${order.order_code}?`
+      )
+    )
+      return;
+
+    try {
+      // Cập nhật tất cả thùng picking_up → ready
+      const { data: boxes } = await supabase
+        .from('boxes')
+        .select('id')
+        .eq('order_id', order.id)
+        .in('status', ['picking_up', 'waiting_return']);
+
+      if (boxes && boxes.length > 0) {
+        const boxIds = boxes.map((b) => b.id);
+        await supabase
+          .from('boxes')
+          .update({ status: 'ready' })
+          .in('id', boxIds);
+      }
+
+      // Reset xe + tài xế nếu có trip liên quan
+      const { data: trips } = await supabase
+        .from('pickup_trips')
+        .select('*')
+        .eq('status', 'in_progress');
+
+      if (trips && trips.length > 0) {
+        // Reset xe
+        for (const trip of trips) {
+          if (trip.vehicle_id) {
+            await supabase
+              .from('vehicles')
+              .update({
+                status: 'idle',
+                current_driver_id: null,
+                current_route: null,
+                departed_at: null,
+                estimated_return_at: null,
+              })
+              .eq('id', trip.vehicle_id);
+          }
+          if (trip.driver_id) {
+            await supabase
+              .from('drivers')
+              .update({ status: 'available', current_vehicle_id: null })
+              .eq('id', trip.driver_id);
+          }
+          // Đánh dấu trip completed
+          await supabase
+            .from('pickup_trips')
+            .update({
+              status: 'completed',
+              completed_at: new Date().toISOString(),
+            })
+            .eq('id', trip.id);
+        }
+      }
+
+      alert('Đã thu hồi thùng thành công!');
+      fetchData();
+    } catch (err) {
+      alert('Lỗi: ' + err.message);
+    }
   };
 
-  // Format
-  const formatRelative = (timestamp) => {
-    if (!timestamp) return '—';
-    const diff = Math.floor((Date.now() - new Date(timestamp).getTime()) / 1000);
-    if (diff < 60) return `${diff}s trước`;
-    if (diff < 3600) return `${Math.floor(diff / 60)}p trước`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)}h trước`;
-    return `${Math.floor(diff / 86400)}d trước`;
-  };
-
-  // Stats
-  const stats = {
-    total: orders.reduce((sum, o) => sum + o.total_boxes, 0),
-    delivered: orders.reduce((sum, o) => sum + o.waiting_boxes, 0),
-    atHub: orders.reduce((sum, o) => sum + o.at_hub_boxes, 0),
-    ready: orders.reduce((sum, o) => sum + o.ready_boxes, 0),
-  };
-
-  // Filter orders
+  // Filter
   const filteredOrders = orders.filter((o) => {
     if (filter === 'waiting' && o.waiting_boxes === 0) return false;
-    if (filter === 'at_hub' && o.at_hub_boxes === 0) return false;
-    if (filter === 'ready' && o.ready_boxes === 0) return false;
+    if (filter === 'picking_up' && o.picking_up_boxes === 0) return false;
+    if (filter === 'done' && o.done_boxes === 0) return false;
 
     if (!search) return true;
     const q = search.toLowerCase();
@@ -237,21 +276,30 @@ export default function BoxesPage() {
     );
   });
 
+  // Stats
+  const stats = {
+    total: orders.reduce((sum, o) => sum + o.total_boxes, 0),
+    waiting: orders.reduce((sum, o) => sum + o.waiting_boxes, 0),
+    pickingUp: orders.reduce((sum, o) => sum + o.picking_up_boxes, 0),
+    done: orders.reduce((sum, o) => sum + o.done_boxes, 0),
+  };
+
   const statusColorMap = {
     yellow: {
       badge: 'bg-yellow-100 text-yellow-700',
-      dot: 'bg-yellow-500',
       icon: Clock,
     },
     blue: {
       badge: 'bg-blue-100 text-blue-700',
-      dot: 'bg-blue-500',
       icon: Truck,
     },
     green: {
       badge: 'bg-green-100 text-green-700',
-      dot: 'bg-green-500',
       icon: CheckCircle,
+    },
+    gray: {
+      badge: 'bg-gray-100 text-gray-700',
+      icon: Package,
     },
   };
 
@@ -284,28 +332,26 @@ export default function BoxesPage() {
         </div>
         <div className="bg-yellow-50 rounded-xl p-4 border border-yellow-100">
           <p className="text-xs text-gray-500 font-medium mb-1">Chờ thu hồi</p>
-          <p className="text-2xl font-bold text-yellow-700">
-            {stats.delivered}
-          </p>
+          <p className="text-2xl font-bold text-yellow-700">{stats.waiting}</p>
         </div>
         <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
-          <p className="text-xs text-gray-500 font-medium mb-1">Đã về Hub</p>
-          <p className="text-2xl font-bold text-blue-700">{stats.atHub}</p>
+          <p className="text-xs text-gray-500 font-medium mb-1">Đang thu hồi</p>
+          <p className="text-2xl font-bold text-blue-700">{stats.pickingUp}</p>
         </div>
         <div className="bg-green-50 rounded-xl p-4 border border-green-100">
-          <p className="text-xs text-gray-500 font-medium mb-1">Sẵn sàng</p>
-          <p className="text-2xl font-bold text-green-700">{stats.ready}</p>
+          <p className="text-xs text-gray-500 font-medium mb-1">Đã thu hồi</p>
+          <p className="text-2xl font-bold text-green-700">{stats.done}</p>
         </div>
       </div>
 
-      {/* Filter + Search */}
+      {/* Filter */}
       <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm flex flex-col md:flex-row gap-3">
         <div className="flex gap-2 flex-wrap">
           {[
             { value: 'all', label: 'Tất cả' },
             { value: 'waiting', label: 'Chờ thu hồi' },
-            { value: 'at_hub', label: 'Đã về Hub' },
-            { value: 'ready', label: 'Sẵn sàng' },
+            { value: 'picking_up', label: 'Đang thu hồi' },
+            { value: 'done', label: 'Đã thu hồi' },
           ].map((tab) => (
             <button
               key={tab.value}
@@ -343,7 +389,6 @@ export default function BoxesPage() {
               <th className="px-4 py-4 text-xs font-bold text-center">
                 Số thùng
               </th>
-              <th className="px-4 py-4 text-xs font-bold">Ngày gửi</th>
               <th className="px-4 py-4 text-xs font-bold">Trạng thái</th>
               <th className="px-4 py-4 text-xs font-bold">Hành động</th>
             </tr>
@@ -352,7 +397,7 @@ export default function BoxesPage() {
             {filteredOrders.length === 0 ? (
               <tr>
                 <td
-                  colSpan="7"
+                  colSpan="6"
                   className="text-center py-10 text-gray-400 text-sm"
                 >
                   Không có đơn hàng nào
@@ -363,7 +408,8 @@ export default function BoxesPage() {
                 const status = getPickupStatus(order);
                 const statusStyle = statusColorMap[status.color];
                 const StatusIcon = statusStyle.icon;
-                const canAssign = order.waiting_boxes > 0 && !order.trip;
+                const canAssign = order.waiting_boxes > 0;
+                const canMarkDone = order.picking_up_boxes > 0;
 
                 return (
                   <tr
@@ -408,19 +454,16 @@ export default function BoxesPage() {
                     <td className="px-4 py-4 text-center">
                       <div className="inline-flex flex-col items-center">
                         <span className="bg-agro-dark text-white font-bold text-xs px-2 py-1 rounded-lg">
-                          {order.waiting_boxes + order.at_hub_boxes + order.ready_boxes} thùng
+                          {order.total_boxes} thùng
                         </span>
-                        {order.waiting_boxes > 0 && (
+                        {(order.waiting_boxes > 0 ||
+                          order.picking_up_boxes > 0) && (
                           <span className="text-[10px] text-yellow-600 font-semibold mt-0.5">
-                            {order.waiting_boxes} chờ thu
+                            {order.waiting_boxes + order.picking_up_boxes} cần
+                            thu
                           </span>
                         )}
                       </div>
-                    </td>
-                    <td className="px-4 py-4 text-sm text-gray-600">
-                      {order.send_date
-                        ? new Date(order.send_date).toLocaleDateString('vi-VN')
-                        : '—'}
                     </td>
                     <td className="px-4 py-4">
                       <span
@@ -441,8 +484,17 @@ export default function BoxesPage() {
                             Phân công
                           </button>
                         )}
+                        {canMarkDone && (
+                          <button
+                            onClick={() => handleMarkDone(order)}
+                            className="bg-green-500 hover:bg-green-600 text-white font-bold px-3 py-2 rounded-lg text-xs whitespace-nowrap transition-colors flex items-center gap-1"
+                          >
+                            <CheckCircle className="w-3.5 h-3.5" />
+                            Đã thu
+                          </button>
+                        )}
                         <button
-                          onClick={() => viewDetails(order)}
+                          onClick={() => setDetailModal(order)}
                           className="bg-gray-100 hover:bg-gray-200 text-agro-dark font-bold px-3 py-2 rounded-lg text-xs whitespace-nowrap transition-colors flex items-center gap-1"
                         >
                           <Eye className="w-3.5 h-3.5" />
@@ -491,7 +543,6 @@ export default function BoxesPage() {
             </div>
 
             <div className="p-5 space-y-4">
-              {/* Thông tin đơn */}
               <div className="bg-agro-bg rounded-xl p-4 border border-gray-100">
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
@@ -515,7 +566,6 @@ export default function BoxesPage() {
                 </div>
               </div>
 
-              {/* Chọn xe */}
               <div>
                 <label className="block text-sm font-bold text-agro-dark mb-2">
                   🚛 Chọn xe thu hồi
@@ -526,17 +576,14 @@ export default function BoxesPage() {
                   className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-agro-dark text-agro-dark font-medium"
                 >
                   <option value="">-- Chọn xe --</option>
-                  {pickupVehicles
-                    .filter((v) => v.status === 'idle')
-                    .map((v) => (
-                      <option key={v.id} value={v.id}>
-                        {v.plate_number} · {v.max_boxes || v.capacity_boxes} thùng
-                      </option>
-                    ))}
+                  {pickupVehicles.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.plate_number} · {v.max_boxes || v.capacity_boxes} thùng
+                    </option>
+                  ))}
                 </select>
               </div>
 
-              {/* Chọn tài xế */}
               <div>
                 <label className="block text-sm font-bold text-agro-dark mb-2">
                   👨‍✈️ Chọn tài xế
@@ -555,7 +602,6 @@ export default function BoxesPage() {
                 </select>
               </div>
 
-              {/* Ngày giờ */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-bold text-agro-dark mb-2">
@@ -581,7 +627,6 @@ export default function BoxesPage() {
                 </div>
               </div>
 
-              {/* Ghi chú */}
               <div>
                 <label className="block text-sm font-bold text-agro-dark mb-2">
                   📝 Ghi chú
@@ -662,12 +707,6 @@ export default function BoxesPage() {
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Nông sản:</span>
-                  <span className="font-semibold">
-                    {detailModal.product_type}
-                  </span>
-                </div>
-                <div className="flex justify-between text-sm">
                   <span className="text-gray-500">Tổng thùng:</span>
                   <span className="font-semibold">
                     {detailModal.total_boxes} thùng
@@ -680,15 +719,15 @@ export default function BoxesPage() {
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Đã về Hub:</span>
+                  <span className="text-gray-500">Đang thu hồi:</span>
                   <span className="font-semibold text-blue-700">
-                    {detailModal.at_hub_boxes} thùng
+                    {detailModal.picking_up_boxes} thùng
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Sẵn sàng:</span>
+                  <span className="text-gray-500">Đã thu hồi:</span>
                   <span className="font-semibold text-green-700">
-                    {detailModal.ready_boxes} thùng
+                    {detailModal.done_boxes} thùng
                   </span>
                 </div>
               </div>
