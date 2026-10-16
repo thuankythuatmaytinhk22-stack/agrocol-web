@@ -10,6 +10,7 @@ const EMPTY_FORM = {
   product_type: '',
   weight: '',
   send_date: '',
+  pickup_time: '',
   pickup_address: '',
   delivery_address: '',
 };
@@ -49,7 +50,6 @@ export default function BookingPage() {
   const [isSuccess, setIsSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // State cho tọa độ
   const [pickupCoords, setPickupCoords] = useState({ lat: null, lng: null });
   const [deliveryCoords, setDeliveryCoords] = useState({ lat: null, lng: null });
 
@@ -68,7 +68,6 @@ export default function BookingPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // Validate tọa độ
     if (!pickupCoords.lat || !deliveryCoords.lat) {
       alert('Bạn cần chọn vị trí lấy hàng và giao hàng trên bản đồ!');
       return;
@@ -105,13 +104,16 @@ export default function BookingPage() {
   return (
     <div className="bg-agro-bg min-h-screen py-12 font-sans">
       <div className="max-w-6xl mx-auto px-4">
-        <h1 className="text-3xl font-bold text-agro-dark mb-2">BẮT ĐẦU CHUYẾN ĐI</h1>
-        <h2 className="text-4xl font-extrabold text-agro-dark mb-8">Đặt thùng lạnh</h2>
+        <h1 className="text-3xl font-bold text-agro-dark mb-2">
+          BẮT ĐẦU CHUYẾN ĐI
+        </h1>
+        <h2 className="text-4xl font-extrabold text-agro-dark mb-8">
+          Đặt thùng lạnh
+        </h2>
 
         <div className="grid md:grid-cols-3 gap-8">
           <div className="md:col-span-2 bg-white rounded-2xl p-8 shadow-sm border border-gray-100">
             <form onSubmit={handleSubmit} className="space-y-6">
-              
               {/* Thông tin khách hàng */}
               <div className="grid md:grid-cols-2 gap-6">
                 <div>
@@ -143,7 +145,7 @@ export default function BookingPage() {
               </div>
 
               {/* Thông tin hàng hóa */}
-              <div className="grid md:grid-cols-3 gap-6">
+              <div className="grid md:grid-cols-4 gap-6">
                 <div>
                   <label className="block text-sm font-semibold mb-2 text-agro-dark">
                     Loại nông sản
@@ -172,6 +174,22 @@ export default function BookingPage() {
                 </div>
                 <div>
                   <label className="block text-sm font-semibold mb-2 text-agro-dark">
+                    Giờ đặt
+                  </label>
+                  <input
+                    type="time"
+                    name="pickup_time"
+                    value={formData.pickup_time}
+                    onChange={handleChange}
+                    required
+                    className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-agro-dark outline-none text-agro-dark font-medium"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">
+                    Giờ xe đến lấy hàng
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold mb-2 text-agro-dark">
                     Khối lượng (kg)
                   </label>
                   <input
@@ -194,7 +212,10 @@ export default function BookingPage() {
                   onChange={(coords) => {
                     setPickupCoords(coords);
                     if (coords.address) {
-                      setFormData((prev) => ({ ...prev, pickup_address: coords.address }));
+                      setFormData((prev) => ({
+                        ...prev,
+                        pickup_address: coords.address,
+                      }));
                     }
                   }}
                 />
@@ -208,7 +229,10 @@ export default function BookingPage() {
                   onChange={(coords) => {
                     setDeliveryCoords(coords);
                     if (coords.address) {
-                      setFormData((prev) => ({ ...prev, delivery_address: coords.address }));
+                      setFormData((prev) => ({
+                        ...prev,
+                        delivery_address: coords.address,
+                      }));
                     }
                   }}
                 />
@@ -229,7 +253,10 @@ export default function BookingPage() {
             {isSuccess && (
               <div className="mt-4 bg-green-100 text-agro-dark p-4 rounded-xl flex items-center gap-3 font-semibold">
                 <CheckCircle className="w-6 h-6" />
-                <span>Đặt thùng thành công! Đã ước tính {successBoxes} thùng cho chuyến hàng.</span>
+                <span>
+                  Đặt thùng thành công! Đã ước tính {successBoxes} thùng cho
+                  chuyến hàng.
+                </span>
               </div>
             )}
           </div>
@@ -237,7 +264,9 @@ export default function BookingPage() {
           {/* Sidebar tóm tắt */}
           <div className="space-y-6">
             <div className="bg-agro-dark text-white rounded-2xl p-6 shadow-md">
-              <p className="text-sm opacity-80 mb-1 font-medium">Chi phí dự kiến</p>
+              <p className="text-sm opacity-80 mb-1 font-medium">
+                Chi phí dự kiến
+              </p>
               <h3 className="text-4xl font-extrabold text-agro-yellow">
                 {cost.toLocaleString('vi-VN')}đ
               </h3>
@@ -249,7 +278,8 @@ export default function BookingPage() {
             </div>
             <div className="bg-green-50 rounded-2xl p-6 border border-green-100">
               <div className="flex items-center gap-2 text-agro-dark font-bold mb-1">
-                <span>🌡️</span> Nhiệt độ mục tiêu: {product.minTemp}–{product.maxTemp}°C
+                <span>🌡️</span> Nhiệt độ mục tiêu: {product.minTemp}–
+                {product.maxTemp}°C
               </div>
               <p className="text-sm text-gray-500 font-medium">{product.note}</p>
             </div>

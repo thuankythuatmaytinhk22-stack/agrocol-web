@@ -9,7 +9,6 @@ import {
   Users,
   X,
   CheckCircle,
-  AlertCircle,
 } from 'lucide-react';
 
 export default function OrdersPage() {
@@ -20,7 +19,6 @@ export default function OrdersPage() {
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
 
-  // Modal phân công
   const [assignModal, setAssignModal] = useState(null);
   const [selectedVehicle, setSelectedVehicle] = useState('');
   const [selectedDriver, setSelectedDriver] = useState('');
@@ -60,14 +58,12 @@ export default function OrdersPage() {
     else fetchData();
   };
 
-  // Mở modal phân công
   const openAssignModal = (order) => {
     setAssignModal(order);
     setSelectedVehicle(order.vehicle_id || '');
     setSelectedDriver(order.driver_id || '');
   };
 
-  // Lưu phân công
   const handleAssign = async () => {
     if (!selectedVehicle || !selectedDriver) {
       alert('Vui lòng chọn cả xe và tài xế!');
@@ -76,7 +72,6 @@ export default function OrdersPage() {
 
     setAssigning(true);
     try {
-      // 1. Cập nhật order
       const { error: orderError } = await supabase
         .from('orders')
         .update({
@@ -87,7 +82,6 @@ export default function OrdersPage() {
         .eq('id', assignModal.id);
       if (orderError) throw orderError;
 
-      // 2. Cập nhật trạng thái xe
       const { error: vehicleError } = await supabase
         .from('vehicles')
         .update({
@@ -96,12 +90,13 @@ export default function OrdersPage() {
           current_driver_id: selectedDriver,
           current_route: `${assignModal.pickup_address} → ${assignModal.delivery_address}`,
           departed_at: new Date().toISOString(),
-          estimated_return_at: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString(),
+          estimated_return_at: new Date(
+            Date.now() + 12 * 60 * 60 * 1000
+          ).toISOString(),
         })
         .eq('id', selectedVehicle);
       if (vehicleError) throw vehicleError;
 
-      // 3. Cập nhật trạng thái tài xế
       const { error: driverError } = await supabase
         .from('drivers')
         .update({
@@ -111,7 +106,6 @@ export default function OrdersPage() {
         .eq('id', selectedDriver);
       if (driverError) throw driverError;
 
-      // 4. Tăng số chuyến
       const vehicle = vehicles.find((v) => v.id === selectedVehicle);
       const driver = drivers.find((d) => d.id === selectedDriver);
       await supabase
@@ -133,17 +127,14 @@ export default function OrdersPage() {
     }
   };
 
-  // Hủy phân công
   const handleUnassign = async (order) => {
     if (!window.confirm('Hủy phân công xe và tài xế cho đơn này?')) return;
     try {
-      // Reset order
       await supabase
         .from('orders')
         .update({ vehicle_id: null, driver_id: null, status: 'pending' })
         .eq('id', order.id);
 
-      // Reset vehicle
       if (order.vehicle_id) {
         await supabase
           .from('vehicles')
@@ -158,7 +149,6 @@ export default function OrdersPage() {
           .eq('id', order.vehicle_id);
       }
 
-      // Reset driver
       if (order.driver_id) {
         await supabase
           .from('drivers')
@@ -175,13 +165,28 @@ export default function OrdersPage() {
 
   const orderStatusOptions = [
     { value: 'pending', label: 'Đã đặt', color: 'bg-gray-100 text-gray-700' },
-    { value: 'packed', label: 'Đã đóng hàng', color: 'bg-blue-100 text-blue-700' },
-    { value: 'shipping', label: 'Đang vận chuyển', color: 'bg-yellow-100 text-yellow-700' },
-    { value: 'delivered', label: 'Đã giao', color: 'bg-green-100 text-green-700' },
-    { value: 'cancelled', label: 'Đã hủy', color: 'bg-red-100 text-red-700' },
+    {
+      value: 'packed',
+      label: 'Đã đóng hàng',
+      color: 'bg-blue-100 text-blue-700',
+    },
+    {
+      value: 'shipping',
+      label: 'Đang vận chuyển',
+      color: 'bg-yellow-100 text-yellow-700',
+    },
+    {
+      value: 'delivered',
+      label: 'Đã giao',
+      color: 'bg-green-100 text-green-700',
+    },
+    {
+      value: 'cancelled',
+      label: 'Đã hủy',
+      color: 'bg-red-100 text-red-700',
+    },
   ];
 
-  // Lọc và tìm kiếm
   const filteredOrders = orders.filter((order) => {
     const matchStatus = filter === 'all' || order.status === filter;
     const matchSearch =
@@ -192,7 +197,6 @@ export default function OrdersPage() {
     return matchStatus && matchSearch;
   });
 
-  // Đếm theo trạng thái
   const counts = {
     all: orders.length,
     pending: orders.filter((o) => o.status === 'pending').length,
@@ -212,7 +216,6 @@ export default function OrdersPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h2 className="text-2xl font-extrabold text-agro-dark flex items-center gap-2">
@@ -272,7 +275,7 @@ export default function OrdersPage() {
 
       {/* Orders table */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-x-auto">
-        <table className="w-full text-left min-w-[1000px]">
+        <table className="w-full text-left min-w-[1100px]">
           <thead className="bg-agro-dark text-white">
             <tr>
               <th className="px-4 py-4 text-xs font-bold">Mã đơn</th>
@@ -280,6 +283,8 @@ export default function OrdersPage() {
               <th className="px-4 py-4 text-xs font-bold">Nông sản</th>
               <th className="px-4 py-4 text-xs font-bold">Số thùng</th>
               <th className="px-4 py-4 text-xs font-bold">Số xe cần</th>
+              <th className="px-4 py-4 text-xs font-bold">Ngày gửi</th>
+              <th className="px-4 py-4 text-xs font-bold">Giờ đặt</th>
               <th className="px-4 py-4 text-xs font-bold">Xe</th>
               <th className="px-4 py-4 text-xs font-bold">Tài xế</th>
               <th className="px-4 py-4 text-xs font-bold">Trạng thái</th>
@@ -289,7 +294,10 @@ export default function OrdersPage() {
           <tbody>
             {filteredOrders.length === 0 ? (
               <tr>
-                <td colSpan="9" className="text-center py-10 text-gray-400 text-sm">
+                <td
+                  colSpan="11"
+                  className="text-center py-10 text-gray-400 text-sm"
+                >
                   Không có đơn hàng nào
                 </td>
               </tr>
@@ -328,6 +336,14 @@ export default function OrdersPage() {
                         {vehiclesNeeded} xe
                       </span>
                     </td>
+                    <td className="px-4 py-4 text-sm text-gray-600">
+                      {order.send_date
+                        ? new Date(order.send_date).toLocaleDateString('vi-VN')
+                        : '—'}
+                    </td>
+                    <td className="px-4 py-4 text-sm font-semibold text-agro-dark">
+                      {order.pickup_time || '—'}
+                    </td>
                     <td className="px-4 py-4">
                       {vehicle ? (
                         <div className="flex items-center gap-2">
@@ -360,7 +376,9 @@ export default function OrdersPage() {
                         <div className="flex items-center gap-2">
                           <Users className="w-4 h-4 text-agro-dark" />
                           <div>
-                            <p className="font-semibold text-xs">{driver.name}</p>
+                            <p className="font-semibold text-xs">
+                              {driver.name}
+                            </p>
                             <p className="text-[10px] text-gray-500">
                               {driver.phone}
                             </p>
@@ -375,10 +393,13 @@ export default function OrdersPage() {
                     <td className="px-4 py-4">
                       <select
                         value={order.status}
-                        onChange={(e) => updateOrderStatus(order.id, e.target.value)}
+                        onChange={(e) =>
+                          updateOrderStatus(order.id, e.target.value)
+                        }
                         className={`border rounded-lg px-2 py-1.5 text-xs font-bold outline-none focus:ring-2 focus:ring-agro-dark ${
-                          orderStatusOptions.find((s) => s.value === order.status)
-                            ?.color
+                          orderStatusOptions.find(
+                            (s) => s.value === order.status
+                          )?.color
                         }`}
                       >
                         {orderStatusOptions.map((opt) => (
@@ -413,7 +434,7 @@ export default function OrdersPage() {
         </table>
       </div>
 
-      {/* === MODAL PHÂN CÔNG === */}
+      {/* Modal phân công */}
       {assignModal && (
         <div
           className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
@@ -423,7 +444,6 @@ export default function OrdersPage() {
             className="bg-white rounded-2xl max-w-lg w-full shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Header */}
             <div className="flex items-center justify-between p-5 border-b border-gray-100">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-agro-yellow rounded-xl flex items-center justify-center">
@@ -446,9 +466,7 @@ export default function OrdersPage() {
               </button>
             </div>
 
-            {/* Body */}
             <div className="p-5 space-y-4">
-              {/* Thông tin đơn */}
               <div className="bg-agro-bg rounded-xl p-4 border border-gray-100">
                 <p className="text-xs font-bold text-gray-500 mb-2">
                   THÔNG TIN ĐƠN HÀNG
@@ -460,20 +478,34 @@ export default function OrdersPage() {
                   </div>
                   <div>
                     <p className="text-xs text-gray-500">Số thùng</p>
-                    <p className="font-semibold">
-                      {assignModal.boxes} thùng
-                    </p>
+                    <p className="font-semibold">{assignModal.boxes} thùng</p>
                   </div>
                   <div className="col-span-2">
                     <p className="text-xs text-gray-500">Tuyến</p>
                     <p className="font-semibold text-xs">
-                      {assignModal.pickup_address} → {assignModal.delivery_address}
+                      {assignModal.pickup_address} →{' '}
+                      {assignModal.delivery_address}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Ngày gửi</p>
+                    <p className="font-semibold text-xs">
+                      {assignModal.send_date
+                        ? new Date(assignModal.send_date).toLocaleDateString(
+                            'vi-VN'
+                          )
+                        : '—'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Giờ đặt</p>
+                    <p className="font-semibold text-xs">
+                      {assignModal.pickup_time || '—'}
                     </p>
                   </div>
                 </div>
               </div>
 
-              {/* Chọn xe */}
               <div>
                 <label className="block text-sm font-bold text-agro-dark mb-2">
                   🚛 Chọn xe
@@ -485,7 +517,9 @@ export default function OrdersPage() {
                 >
                   <option value="">-- Chọn xe --</option>
                   {vehicles
-                    .filter((v) => v.status === 'idle' || v.id === selectedVehicle)
+                    .filter(
+                      (v) => v.status === 'idle' || v.id === selectedVehicle
+                    )
                     .map((v) => (
                       <option key={v.id} value={v.id}>
                         {v.plate_number} · {v.capacity_boxes} thùng ·{' '}
@@ -495,7 +529,6 @@ export default function OrdersPage() {
                 </select>
               </div>
 
-              {/* Chọn tài xế */}
               <div>
                 <label className="block text-sm font-bold text-agro-dark mb-2">
                   👨‍✈️ Chọn tài xế
@@ -508,7 +541,8 @@ export default function OrdersPage() {
                   <option value="">-- Chọn tài xế --</option>
                   {drivers
                     .filter(
-                      (d) => d.status === 'available' || d.id === selectedDriver
+                      (d) =>
+                        d.status === 'available' || d.id === selectedDriver
                     )
                     .map((d) => (
                       <option key={d.id} value={d.id}>
@@ -521,7 +555,6 @@ export default function OrdersPage() {
                 </select>
               </div>
 
-              {/* Thông báo */}
               {selectedVehicle && selectedDriver && (
                 <div className="bg-green-50 border border-green-100 rounded-xl p-3 flex items-start gap-2">
                   <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
@@ -536,7 +569,6 @@ export default function OrdersPage() {
               )}
             </div>
 
-            {/* Footer */}
             <div className="flex gap-3 p-5 border-t border-gray-100">
               <button
                 onClick={() => setAssignModal(null)}

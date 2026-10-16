@@ -24,7 +24,7 @@ export default function Header() {
         <div className="flex justify-between items-center h-20">
           <Link to="/" className="flex items-center gap-3">
             <img
-              src="/logo.png"
+              src="/logo.jpg"
               alt="AgroCold Logo"
               className="w-12 h-12 object-contain"
             />

@@ -5,22 +5,27 @@ export const createOrder = async (orderData) => {
   const weight = parseFloat(orderData.weight);
   const boxes = calcBoxes(weight);
   const product = matchProduct(orderData.product_type);
-  const orderCode = `AC-${new Date().getFullYear()}-${Math.floor(10000 + Math.random() * 90000)}`;
+  const orderCode = `AC-${new Date().getFullYear()}-${Math.floor(
+    10000 + Math.random() * 90000
+  )}`;
 
   const { data: order, error: orderError } = await supabase
     .from('orders')
-    .insert([{
-      ...orderData,
-      weight: weight,
-      boxes,
-      order_code: orderCode,
-      status: 'pending',
-      temperature: product.minTemp,
-      pickup_lat: orderData.pickup_lat || null,
-      pickup_lng: orderData.pickup_lng || null,
-      delivery_lat: orderData.delivery_lat || null,
-      delivery_lng: orderData.delivery_lng || null,
-    }])
+    .insert([
+      {
+        ...orderData,
+        weight: weight,
+        boxes,
+        order_code: orderCode,
+        status: 'pending',
+        temperature: product.minTemp,
+        pickup_time: orderData.pickup_time || null,
+        pickup_lat: orderData.pickup_lat || null,
+        pickup_lng: orderData.pickup_lng || null,
+        delivery_lat: orderData.delivery_lat || null,
+        delivery_lng: orderData.delivery_lng || null,
+      },
+    ])
     .select()
     .single();
 
@@ -32,7 +37,7 @@ export const createOrder = async (orderData) => {
     product_type: orderData.product_type,
     target_temp: `${product.minTemp}-${product.maxTemp}°C`,
     current_temp: product.minTemp,
-    status: 'delivered'
+    status: 'delivered',
   }));
 
   const { error: boxError } = await supabase.from('boxes').insert(boxInserts);
@@ -54,8 +59,14 @@ export const getOrderByCode = async (code) => {
 export const subscribeToOrder = (orderCode, callback) => {
   return supabase
     .channel(`order-${orderCode}`)
-    .on('postgres_changes',
-      { event: 'UPDATE', schema: 'public', table: 'orders', filter: `order_code=eq.${orderCode}` },
+    .on(
+      'postgres_changes',
+      {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'orders',
+        filter: `order_code=eq.${orderCode}`,
+      },
       (payload) => callback(payload.new)
     )
     .subscribe();
