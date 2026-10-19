@@ -282,7 +282,7 @@ export default function BookingPage() {
               </p>
             </div>
 
-            {/* ✅ Thẻ nhiệt độ động */}
+            {/* Thẻ nhiệt độ hiện tại */}
             <div
               className={`rounded-2xl p-6 border transition-all ${
                 formData.product_type
@@ -313,6 +313,31 @@ export default function BookingPage() {
                   Chọn loại nông sản để xem cấu hình làm lạnh phù hợp
                 </p>
               )}
+            </div>
+
+            {/* BẢNG TRA CỨU NHIỆT ĐỘ NÔNG SẢN */}
+            <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
+              <h3 className="font-bold text-agro-dark mb-4 flex items-center gap-2">
+                📋 Bảng nhiệt độ bảo quản
+              </h3>
+              <div className="space-y-3 text-sm">
+                <div className="flex justify-between items-center py-2 border-b border-gray-50">
+                  <span className="font-medium text-gray-700">🍈 Sầu riêng</span>
+                  <span className="font-bold text-green-700 bg-green-50 px-2 py-1 rounded">13 – 15°C</span>
+                </div>
+                <div className="flex justify-between items-center py-2 border-b border-gray-50">
+                  <span className="font-medium text-gray-700">🍓 Dâu tây</span>
+                  <span className="font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded">-0.5 – 1°C</span>
+                </div>
+                <div className="flex justify-between items-center py-2 border-b border-gray-50">
+                  <span className="font-medium text-gray-700">🥑 Bơ</span>
+                  <span className="font-bold text-yellow-700 bg-yellow-50 px-2 py-1 rounded">4 – 13°C</span>
+                </div>
+                <div className="flex justify-between items-center py-2">
+                  <span className="font-medium text-gray-700">🥭 Xoài</span>
+                  <span className="font-bold text-orange-700 bg-orange-50 px-2 py-1 rounded">10 – 13°C</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
