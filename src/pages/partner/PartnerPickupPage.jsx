@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabaseClient';
 import { getOrdersNeedingPickup, getPickupVehicles, getAvailableDriversForPickup, createPickupTrip } from '../../services/pickupService';
-import { MapPin, Truck, LogOut, Clock, CheckCircle, X, Plus, Users, Edit, Trash2, Search } from 'lucide-react';
+import { MapPin, Truck, LogOut, Clock, CheckCircle, X, Plus, Users, Edit, Trash2 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -17,15 +17,16 @@ export default function PartnerPickupPage() {
   const [vehicles, setVehicles] = useState([]);
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(true);
-  
-  // State cho Modal Phân công (Tab Dispatch)
+  const [defaultPartnerId, setDefaultPartnerId] = useState(null);
+
+  // State cho Modal Phân công
   const [showModal, setShowModal] = useState(false);
   const [selectedOrders, setSelectedOrders] = useState([]);
   const [selectedVehicle, setSelectedVehicle] = useState('');
   const [selectedDriver, setSelectedDriver] = useState('');
   const [creating, setCreating] = useState(false);
 
-  // State cho Modal Thêm/Sửa (Tab Vehicle/Driver)
+  // State cho Modal Thêm/Sửa
   const [showFleetModal, setShowFleetModal] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [savingFleet, setSavingFleet] = useState(false);
@@ -41,8 +42,15 @@ export default function PartnerPickupPage() {
       navigate('/partner/login');
       return;
     }
+    fetchPartnerId();
     fetchData();
   }, []);
+
+  const fetchPartnerId = async () => {
+    // Lấy ID của đối tác đầu tiên trong hệ thống
+    const { data } = await supabase.from('partners').select('id').limit(1).maybeSingle();
+    if (data) setDefaultPartnerId(data.id);
+  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -103,7 +111,6 @@ export default function PartnerPickupPage() {
     navigate('/partner/login');
   };
 
-  // === LOGIC CHO TAB XE & TÀI XẾ ===
   const openFleetModal = (item = null) => {
     setEditingItem(item);
     if (activeTab === 'vehicles') {
@@ -138,6 +145,7 @@ export default function PartnerPickupPage() {
           status: formData.status,
           vehicle_type: 'pickup',
           notes: formData.notes,
+          partner_id: defaultPartnerId, // Thêm ID đối tác
         };
         if (editingItem) await supabase.from('vehicles').update(payload).eq('id', editingItem.id);
         else await supabase.from('vehicles').insert([payload]);
@@ -148,6 +156,7 @@ export default function PartnerPickupPage() {
           years_experience: parseInt(formData.years_experience) || 0,
           favorite_routes: formData.favorite_routes_text.split(',').map(r => r.trim()).filter(Boolean),
           status: formData.status, driver_type: 'pickup', notes: formData.notes,
+          partner_id: defaultPartnerId, // Thêm ID đối tác
         };
         if (editingItem) await supabase.from('drivers').update(payload).eq('id', editingItem.id);
         else await supabase.from('drivers').insert([payload]);
@@ -173,7 +182,6 @@ export default function PartnerPickupPage() {
     }
   };
 
-  // Lọc đơn hàng cho tab Dispatch
   const filteredOrders = orders.filter(o => {
     if (o.status === 'shipping' || o.status === 'delivered') return true;
     return false;
@@ -222,10 +230,9 @@ export default function PartnerPickupPage() {
           </button>
         </div>
 
-        {/* ===== TAB 1: ĐIỀU PHỐI THU HỒI ===== */}
+        {/* TAB 1: ĐIỀU PHỐI THU HỒI */}
         {activeTab === 'dispatch' && (
           <div className="grid lg:grid-cols-2 gap-6 h-[calc(100vh-300px)]">
-            {/* Danh sách điểm */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-y-auto flex flex-col">
               <div className="p-5 border-b border-gray-100 sticky top-0 bg-white z-10 flex justify-between items-center">
                 <h2 className="font-bold text-agro-dark text-lg">Điểm cần thu ({filteredOrders.length})</h2>
@@ -268,7 +275,6 @@ export default function PartnerPickupPage() {
               </div>
             </div>
 
-            {/* Map */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden relative">
               <MapContainer center={mapCenter} zoom={6} style={{ height: '100%', width: '100%' }}>
                 <TileLayer attribution='&copy; MapTiler' url={`https://api.maptiler.com/maps/outdoor-v2/{z}/{x}/{y}.png?key=0kgv1m784H4kd86re01y`} />
@@ -288,7 +294,7 @@ export default function PartnerPickupPage() {
           </div>
         )}
 
-        {/* ===== TAB 2: QUẢN LÝ XE THU HỒI ===== */}
+        {/* TAB 2: XE THU HỒI */}
         {activeTab === 'vehicles' && (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
             {vehicles.map(v => (
@@ -317,7 +323,7 @@ export default function PartnerPickupPage() {
           </div>
         )}
 
-        {/* ===== TAB 3: QUẢN LÝ TÀI XẾ THU HỒI ===== */}
+        {/* TAB 3: TÀI XẾ THU HỒI */}
         {activeTab === 'drivers' && (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
             {drivers.map(d => (
@@ -351,7 +357,7 @@ export default function PartnerPickupPage() {
         )}
       </div>
 
-      {/* MODAL PHÂN CÔNG (Dành cho tab Dispatch) */}
+      {/* MODAL PHÂN CÔNG */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden">
