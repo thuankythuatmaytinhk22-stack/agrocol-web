@@ -19,7 +19,6 @@ export default function PartnerPickupPage() {
   const [vehicles, setVehicles] = useState([]);
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [defaultPartnerId, setDefaultPartnerId] = useState(null);
 
   const [showModal, setShowModal] = useState(false);
   const [selectedOrders, setSelectedOrders] = useState([]);
@@ -42,27 +41,13 @@ export default function PartnerPickupPage() {
       navigate('/partner/login');
       return;
     }
-    fetchPartnerId();
+    // Đã xóa fetchPartnerId() để tránh lỗi 404 do thiếu bảng partners
     fetchData();
   }, []);
-
-  const fetchPartnerId = async () => {
-    try {
-      const { data, error } = await supabase.from('partners').select('id').limit(1).maybeSingle();
-      if (error) {
-        console.warn("Không thể lấy partner_id:", error.message);
-        return;
-      }
-      if (data) setDefaultPartnerId(data.id);
-    } catch (err) {
-      console.warn("Lỗi fetchPartnerId:", err);
-    }
-  };
 
   const fetchData = async () => {
     setLoading(true);
 
-    // 1. Đơn chờ thu (Dùng hàm của bạn để lấy dữ liệu chuẩn)
     try {
       const pendingData = await getOrdersNeedingPickup();
       setOrders(pendingData || []);
@@ -71,7 +56,6 @@ export default function PartnerPickupPage() {
       setOrders([]);
     }
 
-    // 2. Đơn đã thu (Dùng hàm của bạn)
     try {
       const doneData = await getOrdersPickedUp();
       setDoneOrders(doneData || []);
@@ -80,7 +64,6 @@ export default function PartnerPickupPage() {
       setDoneOrders([]);
     }
 
-    // 3. Đơn đang thu (Sửa lại query cho an toàn, không dùng relation phức tạp)
     try {
       const { data: movingBoxes, error } = await supabase
         .from('boxes')
@@ -103,7 +86,6 @@ export default function PartnerPickupPage() {
       setMovingOrders([]);
     }
 
-    // 4. Xe + tài xế
     try {
       const [vData, dData] = await Promise.all([
         getPickupVehicles().catch(() => []),
@@ -209,7 +191,7 @@ export default function PartnerPickupPage() {
           status: formData.status,
           vehicle_type: 'pickup',
           notes: formData.notes,
-          partner_id: defaultPartnerId,
+          // partner_id đã được bỏ vì bảng partners không tồn tại
         };
         if (editingItem) await supabase.from('vehicles').update(payload).eq('id', editingItem.id);
         else await supabase.from('vehicles').insert([payload]);
@@ -220,7 +202,7 @@ export default function PartnerPickupPage() {
           years_experience: parseInt(formData.years_experience) || 0,
           favorite_routes: formData.favorite_routes_text.split(',').map(r => r.trim()).filter(Boolean),
           status: formData.status, driver_type: 'pickup', notes: formData.notes,
-          partner_id: defaultPartnerId,
+          // partner_id đã được bỏ
         };
         if (editingItem) await supabase.from('drivers').update(payload).eq('id', editingItem.id);
         else await supabase.from('drivers').insert([payload]);
@@ -257,7 +239,6 @@ export default function PartnerPickupPage() {
   return (
     <div className="bg-gray-50 min-h-screen py-8 font-sans">
       <div className="max-w-7xl mx-auto px-4 space-y-6">
-        {/* Header */}
         <div className="flex justify-between items-center bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
           <div>
             <h1 className="text-2xl font-bold text-agro-dark flex items-center gap-2">
@@ -277,7 +258,6 @@ export default function PartnerPickupPage() {
           </div>
         </div>
 
-        {/* Tabs (5 Tab) */}
         <div className="bg-white rounded-2xl p-2 border border-gray-100 shadow-sm flex gap-2 overflow-x-auto">
           <button onClick={() => setActiveTab('dispatch')} className={`flex-1 flex-shrink-0 flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-bold text-sm transition-colors ${activeTab === 'dispatch' ? 'bg-agro-dark text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
             <MapPin className="w-4 h-4" /> Điều phối thu hồi
@@ -296,7 +276,6 @@ export default function PartnerPickupPage() {
           </button>
         </div>
 
-        {/* TAB 1: ĐIỀU PHỐI */}
         {activeTab === 'dispatch' && (
           <div className="grid lg:grid-cols-2 gap-6 h-[calc(100vh-320px)]">
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-y-auto flex flex-col">
@@ -360,7 +339,6 @@ export default function PartnerPickupPage() {
           </div>
         )}
 
-        {/* TAB 2: ĐANG THU HỒI */}
         {activeTab === 'moving' && (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
             <h2 className="font-bold text-agro-dark text-lg mb-4">Danh sách đang thu hồi ({movingOrders.length})</h2>
@@ -391,7 +369,6 @@ export default function PartnerPickupPage() {
           </div>
         )}
 
-        {/* TAB 3: ĐÃ THU HỒI */}
         {activeTab === 'done' && (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
             <h2 className="font-bold text-agro-dark text-lg mb-4">Danh sách đã thu hồi ({doneOrders.length})</h2>
@@ -416,7 +393,6 @@ export default function PartnerPickupPage() {
           </div>
         )}
 
-        {/* TAB 4: XE */}
         {activeTab === 'vehicles' && (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
             {vehicles.map(v => (
@@ -445,7 +421,6 @@ export default function PartnerPickupPage() {
           </div>
         )}
 
-        {/* TAB 5: TÀI XẾ */}
         {activeTab === 'drivers' && (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
             {drivers.map(d => (
@@ -479,7 +454,6 @@ export default function PartnerPickupPage() {
         )}
       </div>
 
-      {/* MODAL PHÂN CÔNG */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden">
@@ -515,7 +489,6 @@ export default function PartnerPickupPage() {
         </div>
       )}
 
-      {/* MODAL THÊM/SỬA */}
       {showFleetModal && (
         <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
