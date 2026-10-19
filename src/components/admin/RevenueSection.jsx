@@ -38,7 +38,7 @@ export default function RevenueSection() {
         getWeekRevenue(),
         getMonthRevenue(),
         getTotalRevenue(),
-        getDailyRevenue(14),
+        getDailyRevenue(), // Gọi mặc định sẽ lấy tháng hiện tại
         getTopProducts(5, 30),
       ]);
       setToday(t);
@@ -147,10 +147,10 @@ export default function RevenueSection() {
           <div className="flex items-center justify-between mb-5">
             <h3 className="font-bold text-agro-dark text-lg flex items-center gap-2">
               <TrendingUp className="w-5 h-5" />
-              Doanh thu 14 ngày qua
+              Doanh thu Tháng {new Date().getMonth() + 1}
             </h3>
             <span className="text-xs text-gray-500 font-medium">
-              Đơn vị: nghìn đồng
+              Đơn vị: VNĐ
             </span>
           </div>
 
@@ -159,38 +159,38 @@ export default function RevenueSection() {
               Chưa có dữ liệu
             </div>
           ) : (
-            <div className="flex items-end justify-between gap-1.5 h-56">
+            <div className="flex items-end justify-between gap-1 h-56 mt-4 border-b border-gray-100 pb-2">
               {daily.map((d, i) => {
                 const height = (d.revenue / maxDaily) * 100;
-                const dayLabel = new Date(d.date).toLocaleDateString('vi-VN', {
-                  day: '2-digit',
-                  month: '2-digit',
-                });
+                const dayNum = new Date(d.date).getDate();
+                // Chỉ hiển thị nhãn ngày 1, 5, 10, 15, 20, 25, 30 cho đỡ rối
+                const showLabel = dayNum === 1 || dayNum % 5 === 0 || dayNum === daily.length;
+                
                 return (
                   <div
                     key={i}
-                    className="flex-1 flex flex-col items-center gap-2 group relative"
+                    className="flex-1 flex flex-col items-center justify-end gap-1 group relative h-full"
                   >
-                    <div className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                    {/* Tooltip */}
+                    <div className="absolute bottom-full mb-1 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
                       <div className="bg-agro-dark text-white text-[10px] font-bold px-2 py-1 rounded whitespace-nowrap">
-                        {formatVNDFull(d.revenue)}
-                        <br />
-                        {d.orders} đơn
+                        {dayNum}/{new Date().getMonth() + 1}: {formatVNDFull(d.revenue)} ({d.orders} đơn)
                       </div>
                     </div>
 
-                    <span className="text-[9px] font-bold text-agro-dark opacity-0 group-hover:opacity-100 transition-opacity">
-                      {formatVND(d.revenue)}
-                    </span>
-                    <div
-                      className="w-full bg-gradient-to-t from-agro-dark to-agro-green rounded-t-md transition-all duration-500 hover:opacity-80 cursor-pointer"
-                      style={{
-                        height: `${Math.max(height, 2)}%`,
-                        minHeight: d.revenue > 0 ? '4px' : '2px',
-                      }}
-                    ></div>
-                    <span className="text-[9px] text-gray-500 font-semibold">
-                      {dayLabel}
+                    {/* Bar */}
+                    {d.revenue > 0 ? (
+                      <div
+                        className="w-full bg-gradient-to-t from-agro-dark to-agro-green rounded-t-sm transition-all duration-500 hover:opacity-80 cursor-pointer"
+                        style={{ height: `${Math.max(height, 5)}%` }}
+                      ></div>
+                    ) : (
+                      <div className="w-full h-0"></div>
+                    )}
+
+                    {/* Label trục X */}
+                    <span className={`text-[9px] font-semibold ${showLabel ? 'text-gray-600' : 'text-transparent'}`}>
+                      {dayNum}
                     </span>
                   </div>
                 );

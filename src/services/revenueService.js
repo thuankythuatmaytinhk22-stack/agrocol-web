@@ -78,26 +78,27 @@ export const getTotalRevenue = async () => {
   };
 };
 
-// === LẤY DOANH THU THEO NGÀY (cho biểu đồ) ===
-export const getDailyRevenue = async (days = 30) => {
-  const start = new Date();
-  start.setDate(start.getDate() - days);
-  start.setHours(0, 0, 0, 0);
+// === LẤY DOANH THU THEO NGÀY TRONG THÁNG (cho biểu đồ) ===
+export const getDailyRevenue = async (month = new Date().getMonth() + 1, year = new Date().getFullYear()) => {
+  // Lấy ngày đầu tháng và ngày cuối tháng
+  const start = new Date(year, month - 1, 1);
+  const end = new Date(year, month, 0); 
+  end.setHours(23, 59, 59, 999);
 
   const { data, error } = await supabase
     .from('orders')
     .select('boxes, created_at, status')
     .gte('created_at', start.toISOString())
+    .lte('created_at', end.toISOString())
     .neq('status', 'cancelled')
     .order('created_at', { ascending: true });
   if (error) throw error;
 
   const dailyMap = {};
-  for (let i = 0; i < days; i++) {
-    const d = new Date();
-    d.setDate(d.getDate() - (days - 1 - i));
-    const key = d.toISOString().split('T')[0];
-    dailyMap[key] = { date: key, revenue: 0, orders: 0 };
+  // Tạo sẵn các ngày trong tháng
+  for (let d = 1; d <= end.getDate(); d++) {
+    const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    dailyMap[dateStr] = { date: dateStr, revenue: 0, orders: 0 };
   }
 
   (data || []).forEach((order) => {
