@@ -47,8 +47,16 @@ export default function PartnerPickupPage() {
   }, []);
 
   const fetchPartnerId = async () => {
-    const { data } = await supabase.from('partners').select('id').limit(1).maybeSingle();
-    if (data) setDefaultPartnerId(data.id);
+    try {
+      const { data, error } = await supabase.from('partners').select('id').limit(1).maybeSingle();
+      if (error) {
+        console.warn("Không thể lấy partner_id (có thể bảng partners trống hoặc lỗi RLS):", error.message);
+        return;
+      }
+      if (data) setDefaultPartnerId(data.id);
+    } catch (err) {
+      console.warn("Lỗi fetchPartnerId:", err);
+    }
   };
 
   // Tách riêng từng query để 1 cái lỗi không làm hỏng cả trang
