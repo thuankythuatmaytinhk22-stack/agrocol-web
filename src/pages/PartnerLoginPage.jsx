@@ -1,8 +1,7 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Truck, Lock } from 'lucide-react';
+import { useNavigate, Link } from 'react-router-dom';
+import { Lock, ArrowLeft } from 'lucide-react';
 
-// Mật khẩu cố định cho đối tác
 const PARTNER_PASSWORD = 'doitac123';
 
 export default function PartnerLoginPage() {
@@ -20,35 +19,50 @@ export default function PartnerLoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#1a2332] px-4">
-      <form onSubmit={handleLogin} className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md">
-        <div className="flex justify-center mb-6">
-          <div className="w-16 h-16 bg-agro-yellow rounded-2xl flex items-center justify-center">
-            <Truck className="w-8 h-8 text-agro-dark" />
-          </div>
-        </div>
-        <h1 className="text-2xl font-bold text-center text-agro-dark mb-2">Đăng nhập Đối tác</h1>
-        <p className="text-sm text-center text-gray-500 mb-6">Dành cho đối tác vận tải thu gom thùng</p>
+    <div className="bg-agro-bg min-h-screen flex flex-col items-center justify-center px-4 relative">
+      {/* Nút quay lại trang chủ */}
+      <Link 
+        to="/" 
+        className="absolute top-6 left-6 flex items-center gap-2 text-agro-dark font-semibold hover:text-agro-dark/80 transition-colors"
+      >
+        <ArrowLeft className="w-5 h-5" />
+        Về Trang chủ
+      </Link>
 
+      <form onSubmit={handleLogin} className="bg-white p-10 rounded-2xl shadow-lg w-full max-w-md border border-gray-100">
+        {/* Logo */}
+        <div className="flex justify-center mb-6">
+          <img src="/logo.jpg" alt="AgroCold Logo" className="w-24 h-24 object-contain" />
+        </div>
+
+        <h1 className="text-2xl font-bold text-agro-dark mb-2 text-center">
+          Đăng nhập Đối tác
+        </h1>
+        <p className="text-sm text-gray-500 text-center mb-8 font-medium">
+          Dành riêng cho đối tác vận tải thu gom thùng
+        </p>
+        
         <div className="relative mb-6">
           <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
           <input 
             type="password" 
             value={password} 
-            onChange={(e) => setPassword(e.target.value)} 
-            required
+            onChange={(e) => setPassword(e.target.value)}
             placeholder="Nhập mật khẩu đối tác"
-            className="w-full border border-gray-300 rounded-xl pl-12 pr-4 py-3 outline-none focus:ring-2 focus:ring-agro-dark" 
+            className="w-full border border-gray-300 rounded-xl pl-12 pr-4 py-3 outline-none focus:ring-2 focus:ring-agro-dark text-agro-dark font-medium"
+            required
           />
         </div>
         
-        <button type="submit"
-          className="w-full bg-agro-yellow hover:bg-yellow-500 text-agro-dark font-bold py-3 rounded-xl transition-colors">
+        <button 
+          type="submit" 
+          className="w-full bg-agro-yellow hover:bg-yellow-500 text-agro-dark font-bold py-3 rounded-xl transition-colors text-lg"
+        >
           ĐĂNG NHẬP
         </button>
-        
-        <p className="text-center text-xs text-gray-400 mt-4">
-          Mật khẩu mẫu: doitac123
+
+        <p className="text-xs text-gray-400 text-center mt-6">
+          Mật khẩu mẫu: <span className="font-bold text-gray-500">doitac123</span>
         </p>
       </form>
     </div>
