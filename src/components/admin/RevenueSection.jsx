@@ -27,6 +27,10 @@ export default function RevenueSection() {
   const [topProducts, setTopProducts] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // Lấy tháng và năm hiện tại
+  const currentMonth = new Date().getMonth() + 1;
+  const currentYear = new Date().getFullYear();
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -38,7 +42,7 @@ export default function RevenueSection() {
         getWeekRevenue(),
         getMonthRevenue(),
         getTotalRevenue(),
-        getDailyRevenue(), // Gọi mặc định sẽ lấy tháng hiện tại
+        getDailyRevenue(currentMonth, currentYear), // Lấy dữ liệu biểu đồ theo tháng hiện tại
         getTopProducts(5, 30),
       ]);
       setToday(t);
@@ -147,7 +151,7 @@ export default function RevenueSection() {
           <div className="flex items-center justify-between mb-5">
             <h3 className="font-bold text-agro-dark text-lg flex items-center gap-2">
               <TrendingUp className="w-5 h-5" />
-              Doanh thu Tháng {new Date().getMonth() + 1}
+              Doanh thu Tháng {currentMonth}/{currentYear}
             </h3>
             <span className="text-xs text-gray-500 font-medium">
               Đơn vị: VNĐ
@@ -162,7 +166,8 @@ export default function RevenueSection() {
             <div className="flex items-end justify-between gap-1 h-56 mt-4 border-b border-gray-100 pb-2">
               {daily.map((d, i) => {
                 const height = (d.revenue / maxDaily) * 100;
-                const dayNum = new Date(d.date).getDate();
+                const dayNum = d.day; // Đã lấy sẵn số ngày từ service, ko lo lỗi Invalid Date
+                
                 // Chỉ hiển thị nhãn ngày 1, 5, 10, 15, 20, 25, 30 cho đỡ rối
                 const showLabel = dayNum === 1 || dayNum % 5 === 0 || dayNum === daily.length;
                 
@@ -174,7 +179,7 @@ export default function RevenueSection() {
                     {/* Tooltip */}
                     <div className="absolute bottom-full mb-1 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
                       <div className="bg-agro-dark text-white text-[10px] font-bold px-2 py-1 rounded whitespace-nowrap">
-                        {dayNum}/{new Date().getMonth() + 1}: {formatVNDFull(d.revenue)} ({d.orders} đơn)
+                        Ngày {dayNum}/{currentMonth}: {formatVNDFull(d.revenue)} ({d.orders} đơn)
                       </div>
                     </div>
 
