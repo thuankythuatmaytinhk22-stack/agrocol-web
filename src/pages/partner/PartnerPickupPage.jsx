@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabaseClient';
-import { getOrdersNeedingPickup, getOrdersPickedUp, getPickupVehicles, getAvailableDriversForPickup, createPickupTrip } from '../../services/pickupService';
+import { getOrdersNeedingPickup, getPickupVehicles, getAvailableDriversForPickup, createPickupTrip } from '../../services/pickupService';
 import { MapPin, Truck, LogOut, Clock, CheckCircle, X, Plus, Users, Edit, Trash2, Home } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
@@ -11,22 +11,23 @@ delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({ iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png', iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png', shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png' });
 
 export default function PartnerPickupPage() {
-  const [activeTab, setActiveTab] = useState('dispatch'); // 'dispatch' | 'moving' | 'done' | 'vehicles' | 'drivers'
-
-  const [orders, setOrders] = useState([]);           // Chờ thu
-  const [movingOrders, setMovingOrders] = useState([]); // Đang thu
-  const [doneOrders, setDoneOrders] = useState([]);     // Đã thu
+  const [activeTab, setActiveTab] = useState('dispatch'); // 'dispatch' | 'moving' | 'vehicles' | 'drivers'
+  
+  const [orders, setOrders] = useState([]);
+  const [movingOrders, setMovingOrders] = useState([]); // Đơn đang thu hồi
   const [vehicles, setVehicles] = useState([]);
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [defaultPartnerId, setDefaultPartnerId] = useState(null);
 
+  // State cho Modal Phân công
   const [showModal, setShowModal] = useState(false);
   const [selectedOrders, setSelectedOrders] = useState([]);
   const [selectedVehicle, setSelectedVehicle] = useState('');
   const [selectedDriver, setSelectedDriver] = useState('');
   const [creating, setCreating] = useState(false);
 
+  // State cho Modal Thêm/Sửa
   const [showFleetModal, setShowFleetModal] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [savingFleet, setSavingFleet] = useState(false);
@@ -47,75 +48,45 @@ export default function PartnerPickupPage() {
   }, []);
 
   const fetchPartnerId = async () => {
-    try {
-      const { data, error } = await supabase.from('partners').select('id').limit(1).maybeSingle();
-      if (error) {
-        console.warn("Không thể lấy partner_id:", error.message);
-        return;
-      }
-      if (data) setDefaultPartnerId(data.id);
-    } catch (err) {
-      console.warn("Lỗi fetchPartnerId:", err);
-    }
+    const { data } = await supabase.from('partners').select('id').limit(1).maybeSingle();
+    if (data) setDefaultPartnerId(data.id);
   };
 
   const fetchData = async () => {
     setLoading(true);
-
-    // 1. Đơn chờ thu (Dùng hàm của bạn để lấy dữ liệu chuẩn)
     try {
-      const pendingData = await getOrdersNeedingPickup();
-      setOrders(pendingData || []);
-    } catch (err) {
-      console.error('getOrdersNeedingPickup lỗi:', err);
-      setOrders([]);
-    }
+      // Lấy đơn chờ thu (chưa phân công)
+      const orderData = await getOrdersNeedingPickup();
+      setOrders(orderData);
 
-    // 2. Đơn đã thu (Dùng hàm của bạn)
-    try {
-      const doneData = await getOrdersPickedUp();
-      setDoneOrders(doneData || []);
-    } catch (err) {
-      console.error('getOrdersPickedUp lỗi:', err);
-      setDoneOrders([]);
-    }
-
-    // 3. Đơn đang thu (Sửa lại query cho an toàn, không dùng relation phức tạp)
-    try {
-      const { data: movingBoxes, error } = await supabase
-        .from('boxes')
-        .select('*, orders(*)')
-        .eq('status', 'picking_up');
-      if (error) throw error;
-
-      const movingOrdersMap = {};
-      (movingBoxes || []).forEach(b => {
-        if (!b.orders) return;
-        if (!movingOrdersMap[b.order_id]) {
-          movingOrdersMap[b.order_id] = { ...b.orders, picking_count: 0, box_ids: [] };
-        }
-        movingOrdersMap[b.order_id].picking_count += 1;
-        movingOrdersMap[b.order_id].box_ids.push(b.id);
+      // Lấy đơn đang thu hồi (đã phân công, đang picking_up)
+      const { data: movingData } = await supabase
+        .from('orders')
+        .select('*, boxes(*), pickup_trip_points(*)')
+        .eq('status', 'delivered'); // Vẫn là delivered nhưng thùng đang picking_up
+      
+      // Lọc những đơn có thùng picking_up
+      const activeMoving = (movingData || []).filter(o => 
+        o.boxes.some(b => b.status === 'picking_up')
+      ).map(o => {
+        const pickingBoxes = o.boxes.filter(b => b.status === 'picking_up');
+        return {
+          ...o,
+          picking_count: pickingBoxes.length,
+          trip_info: o.pickup_trip_points[0] || null // Lấy thông tin chuyến nếu có
+        };
       });
-      setMovingOrders(Object.values(movingOrdersMap));
+      setMovingOrders(activeMoving);
+      
+      const vData = await getPickupVehicles();
+      const dData = await getAvailableDriversForPickup();
+      setVehicles(vData);
+      setDrivers(dData);
     } catch (err) {
-      console.error('moving boxes lỗi:', err);
-      setMovingOrders([]);
+      console.error(err);
+    } finally {
+      setLoading(false);
     }
-
-    // 4. Xe + tài xế
-    try {
-      const [vData, dData] = await Promise.all([
-        getPickupVehicles().catch(() => []),
-        getAvailableDriversForPickup().catch(() => []),
-      ]);
-      setVehicles(vData || []);
-      setDrivers(dData || []);
-    } catch (err) {
-      console.error('fleet lỗi:', err);
-    }
-
-    setLoading(false);
   };
 
   const handleToggleOrder = (order) => {
@@ -147,9 +118,7 @@ export default function PartnerPickupPage() {
       alert('Tạo chuyến thành công! Chuyển sang tab Đang thu hồi.');
       setShowModal(false);
       setSelectedOrders([]);
-      setSelectedVehicle('');
-      setSelectedDriver('');
-      setActiveTab('moving');
+      setActiveTab('moving'); // Tự động chuyển tab
       fetchData();
     } catch (err) {
       alert('Lỗi: ' + err.message);
@@ -158,11 +127,21 @@ export default function PartnerPickupPage() {
     }
   };
 
+  // HÀM CẬP NHẬT ĐÃ THU HỒI (CHUYỂN VỀ HUB)
   const handleMarkArrived = async (orderId) => {
     if (!window.confirm('Xác nhận đã thu hồi thùng và chuyển về Hub?')) return;
     try {
-      await supabase.from('boxes').update({ status: 'ready' }).eq('order_id', orderId).eq('status', 'picking_up');
-      await supabase.from('pickup_trip_points').update({ status: 'picked_up', picked_up_at: new Date().toISOString() }).eq('order_id', orderId);
+      // 1. Cập nhật thùng → ready (sẵn sàng tái sử dụng)
+      await supabase.from('boxes')
+        .update({ status: 'ready' })
+        .eq('order_id', orderId)
+        .eq('status', 'picking_up');
+
+      // 2. Cập nhật trip point → picked_up
+      await supabase.from('pickup_trip_points')
+        .update({ status: 'picked_up', picked_up_at: new Date().toISOString() })
+        .eq('order_id', orderId);
+
       alert('Đã xác nhận thu hồi thùng!');
       fetchData();
     } catch (err) {
@@ -179,19 +158,19 @@ export default function PartnerPickupPage() {
     setEditingItem(item);
     if (activeTab === 'vehicles') {
       setFormData({
-        plate_number: item?.plate_number || '',
-        capacity_boxes: item?.capacity_boxes || 30,
-        status: item?.status || 'idle',
+        plate_number: item?.plate_number || '', 
+        capacity_boxes: item?.capacity_boxes || 30, 
+        status: item?.status || 'idle', 
         notes: item?.notes || '',
         name: '', phone: '', license_number: '', years_experience: 0, favorite_routes_text: '',
       });
     } else {
       setFormData({
         plate_number: '', capacity_boxes: 30, status: 'idle', notes: item?.notes || '',
-        name: item?.name || '',
-        phone: item?.phone || '',
-        license_number: item?.license_number || '',
-        years_experience: item?.years_experience || 0,
+        name: item?.name || '', 
+        phone: item?.phone || '', 
+        license_number: item?.license_number || '', 
+        years_experience: item?.years_experience || 0, 
         favorite_routes_text: (item?.favorite_routes || []).join(', '),
       });
     }
@@ -246,17 +225,18 @@ export default function PartnerPickupPage() {
     }
   };
 
-  const mapCenter = orders.length > 0
+  const mapCenter = orders.length > 0 
     ? [orders[0].delivery_lat || 12.6662, orders[0].delivery_lng || 108.0382]
     : movingOrders.length > 0
-      ? [movingOrders[0].delivery_lat || 12.6662, movingOrders[0].delivery_lng || 108.0382]
-      : [12.6662, 108.0382];
+    ? [movingOrders[0].delivery_lat || 12.6662, movingOrders[0].delivery_lng || 108.0382]
+    : [12.6662, 108.0382];
 
   if (loading) return <div className="p-20 text-center">Đang tải dữ liệu...</div>;
 
   return (
     <div className="bg-gray-50 min-h-screen py-8 font-sans">
       <div className="max-w-7xl mx-auto px-4 space-y-6">
+        
         {/* Header */}
         <div className="flex justify-between items-center bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
           <div>
@@ -277,16 +257,13 @@ export default function PartnerPickupPage() {
           </div>
         </div>
 
-        {/* Tabs (5 Tab) */}
+        {/* Tabs (4 Tab) */}
         <div className="bg-white rounded-2xl p-2 border border-gray-100 shadow-sm flex gap-2 overflow-x-auto">
           <button onClick={() => setActiveTab('dispatch')} className={`flex-1 flex-shrink-0 flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-bold text-sm transition-colors ${activeTab === 'dispatch' ? 'bg-agro-dark text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
             <MapPin className="w-4 h-4" /> Điều phối thu hồi
           </button>
           <button onClick={() => setActiveTab('moving')} className={`flex-1 flex-shrink-0 flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-bold text-sm transition-colors ${activeTab === 'moving' ? 'bg-agro-dark text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
             <Truck className="w-4 h-4" /> Đang thu hồi ({movingOrders.length})
-          </button>
-          <button onClick={() => setActiveTab('done')} className={`flex-1 flex-shrink-0 flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-bold text-sm transition-colors ${activeTab === 'done' ? 'bg-agro-dark text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
-            <CheckCircle className="w-4 h-4" /> Đã thu hồi ({doneOrders.length})
           </button>
           <button onClick={() => setActiveTab('vehicles')} className={`flex-1 flex-shrink-0 flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-bold text-sm transition-colors ${activeTab === 'vehicles' ? 'bg-agro-dark text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
             <Truck className="w-4 h-4" /> Xe thu hồi ({vehicles.length})
@@ -296,7 +273,7 @@ export default function PartnerPickupPage() {
           </button>
         </div>
 
-        {/* TAB 1: ĐIỀU PHỐI */}
+        {/* TAB 1: ĐIỀU PHỐI THU HỒI (Chờ phân công) */}
         {activeTab === 'dispatch' && (
           <div className="grid lg:grid-cols-2 gap-6 h-[calc(100vh-320px)]">
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-y-auto flex flex-col">
@@ -360,7 +337,7 @@ export default function PartnerPickupPage() {
           </div>
         )}
 
-        {/* TAB 2: ĐANG THU HỒI */}
+        {/* TAB 2: ĐANG THU HỒI (Đã phân công) */}
         {activeTab === 'moving' && (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
             <h2 className="font-bold text-agro-dark text-lg mb-4">Danh sách đang thu hồi ({movingOrders.length})</h2>
@@ -378,7 +355,8 @@ export default function PartnerPickupPage() {
                       <MapPin className="w-4 h-4 text-gray-400 mt-0.5" /> {order.delivery_address}
                     </p>
                     <p className="text-sm font-bold text-yellow-600 mb-3">{order.picking_count} thùng</p>
-                    <button
+                    
+                    <button 
                       onClick={() => handleMarkArrived(order.id)}
                       className="w-full bg-agro-dark hover:bg-agro-dark/90 text-white font-bold py-2 rounded-lg text-sm flex items-center justify-center gap-2"
                     >
@@ -391,32 +369,7 @@ export default function PartnerPickupPage() {
           </div>
         )}
 
-        {/* TAB 3: ĐÃ THU HỒI */}
-        {activeTab === 'done' && (
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-            <h2 className="font-bold text-agro-dark text-lg mb-4">Danh sách đã thu hồi ({doneOrders.length})</h2>
-            {doneOrders.length === 0 ? (
-              <div className="p-10 text-center text-gray-500">Chưa có đơn nào hoàn thành.</div>
-            ) : (
-              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {doneOrders.map(order => (
-                  <div key={order.id} className="border border-green-100 bg-green-50/50 rounded-xl p-5">
-                    <div className="flex justify-between items-start mb-2">
-                      <p className="font-bold text-agro-dark">{order.order_code}</p>
-                      <span className="text-xs bg-green-200 text-green-800 px-2 py-0.5 rounded font-bold">Hoàn thành</span>
-                    </div>
-                    <p className="text-sm text-gray-600 mb-2 flex items-start gap-1">
-                      <MapPin className="w-4 h-4 text-gray-400 mt-0.5" /> {order.delivery_address}
-                    </p>
-                    <p className="text-sm font-bold text-green-600">{order.ready_count} thùng đã thu</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* TAB 4: XE */}
+        {/* TAB 3: XE THU HỒI */}
         {activeTab === 'vehicles' && (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
             {vehicles.map(v => (
@@ -445,7 +398,7 @@ export default function PartnerPickupPage() {
           </div>
         )}
 
-        {/* TAB 5: TÀI XẾ */}
+        {/* TAB 4: TÀI XẾ THU HỒI */}
         {activeTab === 'drivers' && (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
             {drivers.map(d => (
@@ -515,7 +468,7 @@ export default function PartnerPickupPage() {
         </div>
       )}
 
-      {/* MODAL THÊM/SỬA */}
+      {/* MODAL THÊM/SỬA XE HOẶC TÀI XẾ */}
       {showFleetModal && (
         <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
