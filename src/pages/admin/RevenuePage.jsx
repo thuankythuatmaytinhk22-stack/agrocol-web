@@ -34,6 +34,10 @@ export default function RevenuePage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Lấy tháng và năm hiện tại
+  const currentMonth = new Date().getMonth() + 1;
+  const currentYear = new Date().getFullYear();
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -45,7 +49,7 @@ export default function RevenuePage() {
         getWeekRevenue(),
         getMonthRevenue(),
         getTotalRevenue(),
-        getDailyRevenue(30),
+        getDailyRevenue(currentMonth, currentYear), // Sửa thành lấy theo tháng hiện tại
         getTopProducts(5, 30),
         getTopCustomers(5, 30),
       ]);
@@ -180,12 +184,12 @@ export default function RevenuePage() {
         </div>
       </div>
 
-      {/* Biểu đồ 30 ngày */}
+      {/* Biểu đồ Tháng */}
       <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
         <div className="flex items-center justify-between mb-5">
           <h3 className="font-bold text-agro-dark text-lg flex items-center gap-2">
             <TrendingUp className="w-5 h-5" />
-            Doanh thu 30 ngày qua
+            Doanh thu Tháng {currentMonth}/{currentYear}
           </h3>
           <span className="text-xs text-gray-500 font-medium">Đơn vị: VNĐ</span>
         </div>
@@ -195,35 +199,42 @@ export default function RevenuePage() {
             Chưa có dữ liệu
           </div>
         ) : (
-          <div className="flex items-end justify-between gap-1 h-64 overflow-x-auto">
+          <div className="flex items-end justify-between gap-1 h-64 mt-4 border-b border-gray-100 pb-2">
             {daily.map((d, i) => {
               const height = (d.revenue / maxDaily) * 100;
-              const dayLabel = new Date(d.date).toLocaleDateString('vi-VN', {
-                day: '2-digit',
-                month: '2-digit',
-              });
+              
+              // Dùng hàm split để lấy ngày, tránh lỗi Invalid Date
+              const dateParts = d.date.split('-');
+              const dayNum = parseInt(dateParts[2], 10);
+              
+              // Chỉ hiện nhãn ngày 1, 5, 10, 15, 20, 25, 30
+              const showLabel = dayNum === 1 || dayNum % 5 === 0 || dayNum === daily.length;
+              
               return (
                 <div
                   key={i}
-                  className="flex-1 flex flex-col items-center gap-2 group relative min-w-[20px]"
+                  className="flex-1 flex flex-col items-center justify-end gap-2 group relative min-w-[15px] h-full"
                 >
-                  <div className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                  <div className="absolute bottom-full mb-1 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
                     <div className="bg-agro-dark text-white text-[10px] font-bold px-2 py-1 rounded whitespace-nowrap">
-                      {formatVNDFull(d.revenue)}
+                      Ngày {dayNum}/{currentMonth}: {formatVNDFull(d.revenue)}
                       <br />
                       {d.orders} đơn
                     </div>
                   </div>
 
-                  <div
-                    className="w-full bg-gradient-to-t from-agro-dark to-agro-green rounded-t-md transition-all duration-500 hover:opacity-80 cursor-pointer"
-                    style={{
-                      height: `${Math.max(height, 2)}%`,
-                      minHeight: d.revenue > 0 ? '4px' : '2px',
-                    }}
-                  ></div>
-                  <span className="text-[8px] text-gray-500 font-semibold">
-                    {dayLabel}
+                  {/* Nếu có doanh thu mới vẽ cột, không thì ẩn đi */}
+                  {d.revenue > 0 ? (
+                    <div
+                      className="w-full bg-gradient-to-t from-agro-dark to-agro-green rounded-t-md transition-all duration-500 hover:opacity-80 cursor-pointer"
+                      style={{ height: `${Math.max(height, 5)}%` }}
+                    ></div>
+                  ) : (
+                    <div className="w-full h-0"></div>
+                  )}
+                  
+                  <span className={`text-[9px] font-semibold ${showLabel ? 'text-gray-600' : 'text-transparent'}`}>
+                    {dayNum}
                   </span>
                 </div>
               );
