@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Leaf, LogOut, Settings, Truck, User } from 'lucide-react';
 
@@ -9,6 +10,21 @@ export default function Header() {
   const isAdmin = localStorage.getItem('isAdmin') === 'true';
   const isPartner = localStorage.getItem('isPartner') === 'true';
 
+  // Tự động dọn dẹp nếu phát hiện đăng nhập cả 2
+  useEffect(() => {
+    if (isAdmin && isPartner) {
+      // Nếu đang ở trang của bên nào thì ưu tiên giữ bên đó, xóa bên kia
+      if (location.pathname.includes('/partner')) {
+        localStorage.removeItem('isAdmin');
+      } else if (location.pathname.includes('/admin')) {
+        localStorage.removeItem('isPartner');
+      } else {
+        // Nếu ở trang chủ mà có cả 2, xóa đối tác (ưu tiên admin)
+        localStorage.removeItem('isPartner');
+      }
+    }
+  }, [location.pathname, isAdmin, isPartner]);
+
   const navItems = [
     { name: 'Trang chủ', path: '/' },
     { name: 'Đặt thùng', path: '/booking' },
@@ -16,14 +32,23 @@ export default function Header() {
     { name: 'Quản lý đơn', path: '/box-management' },
   ];
 
-  const handleLogoutAdmin = () => {
+  // Hàm đăng xuất chung: Xóa sạch cả 2 quyền
+  const handleLogoutAll = () => {
     localStorage.removeItem('isAdmin');
+    localStorage.removeItem('isPartner');
     navigate('/');
   };
 
-  const handleLogoutPartner = () => {
-    localStorage.removeItem('isPartner');
+  // Hàm chuyển sang trang Đăng nhập Đối tác (xóa quyền Admin trước)
+  const handleGoToPartnerLogin = () => {
+    localStorage.removeItem('isAdmin');
     navigate('/partner/login');
+  };
+
+  // Hàm chuyển sang trang Đăng nhập Admin (xóa quyền Đối tác trước)
+  const handleGoToAdminLogin = () => {
+    localStorage.removeItem('isPartner');
+    navigate('/login');
   };
 
   return (
@@ -63,22 +88,25 @@ export default function Header() {
                   <Truck className="w-4 h-4" />
                   Đối tác Thu hồi
                 </Link>
-                <button
-                  onClick={handleLogoutPartner}
-                  className="flex items-center gap-1 text-sm font-semibold text-red-500 hover:text-red-700 transition-colors"
-                  title="Đăng xuất"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
+                {/* Chỉ hiện nút đăng xuất chung ở đây nếu không phải admin */}
+                {!isAdmin && (
+                  <button
+                    onClick={handleLogoutAll}
+                    className="flex items-center gap-1 text-sm font-semibold text-red-500 hover:text-red-700 transition-colors"
+                    title="Đăng xuất"
+                  >
+                    <LogOut className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             ) : (
-              <Link
-                to="/partner/login"
+              <button
+                onClick={handleGoToPartnerLogin}
                 className="flex items-center gap-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-bold px-4 py-2 rounded-lg transition-colors"
               >
                 <Truck className="w-4 h-4" />
                 Đăng nhập Đối tác
-              </Link>
+              </button>
             )}
 
             {/* Nút Admin */}
@@ -91,8 +119,9 @@ export default function Header() {
                   <Settings className="w-4 h-4" />
                   Admin Panel
                 </Link>
+                {/* Nút đăng xuất chung */}
                 <button
-                  onClick={handleLogoutAdmin}
+                  onClick={handleLogoutAll}
                   className="flex items-center gap-1 text-sm font-semibold text-red-500 hover:text-red-700 transition-colors"
                   title="Đăng xuất"
                 >
@@ -100,12 +129,12 @@ export default function Header() {
                 </button>
               </div>
             ) : (
-              <Link
-                to="/login"
+              <button
+                onClick={handleGoToAdminLogin}
                 className="flex items-center gap-1.5 bg-agro-yellow hover:bg-yellow-500 text-agro-dark text-sm font-bold px-4 py-2 rounded-lg transition-colors"
               >
                 Đăng nhập Admin
-              </Link>
+              </button>
             )}
           </nav>
         </div>
