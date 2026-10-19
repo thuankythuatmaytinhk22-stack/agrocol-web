@@ -11,8 +11,7 @@ delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({ iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png', iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png', shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png' });
 
 export default function PartnerPickupPage() {
-  const [activeTab, setActiveTab] = useState('dispatch'); // 'dispatch' | 'vehicles' | 'drivers'
-  
+  const [activeTab, setActiveTab] = useState('dispatch'); 
   const [orders, setOrders] = useState([]);
   const [vehicles, setVehicles] = useState([]);
   const [drivers, setDrivers] = useState([]);
@@ -47,7 +46,7 @@ export default function PartnerPickupPage() {
   }, []);
 
   const fetchPartnerId = async () => {
-    // Lấy ID của đối tác đầu tiên trong hệ thống
+    // Sử dụng maybeSingle để không báo lỗi 404 nếu bảng trống
     const { data } = await supabase.from('partners').select('id').limit(1).maybeSingle();
     if (data) setDefaultPartnerId(data.id);
   };
@@ -145,7 +144,7 @@ export default function PartnerPickupPage() {
           status: formData.status,
           vehicle_type: 'pickup',
           notes: formData.notes,
-          partner_id: defaultPartnerId, // Thêm ID đối tác
+          partner_id: defaultPartnerId,
         };
         if (editingItem) await supabase.from('vehicles').update(payload).eq('id', editingItem.id);
         else await supabase.from('vehicles').insert([payload]);
@@ -156,7 +155,7 @@ export default function PartnerPickupPage() {
           years_experience: parseInt(formData.years_experience) || 0,
           favorite_routes: formData.favorite_routes_text.split(',').map(r => r.trim()).filter(Boolean),
           status: formData.status, driver_type: 'pickup', notes: formData.notes,
-          partner_id: defaultPartnerId, // Thêm ID đối tác
+          partner_id: defaultPartnerId,
         };
         if (editingItem) await supabase.from('drivers').update(payload).eq('id', editingItem.id);
         else await supabase.from('drivers').insert([payload]);
