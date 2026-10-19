@@ -11,7 +11,8 @@ export default function LoginPage() {
   const handleLogin = (e) => {
     e.preventDefault();
     if (password === ADMIN_PASSWORD) {
-      localStorage.setItem('isAdmin', 'true');
+      localStorage.clear(); // Xóa sạch tất cả các quyền cũ
+      localStorage.setItem('isAdmin', 'true'); // Chỉ lưu quyền admin
       navigate('/admin');
     } else {
       alert('Sai mật khẩu!');

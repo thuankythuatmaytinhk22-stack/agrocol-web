@@ -11,7 +11,8 @@ export default function PartnerLoginPage() {
   const handleLogin = (e) => {
     e.preventDefault();
     if (password === PARTNER_PASSWORD) {
-      localStorage.setItem('isPartner', 'true');
+      localStorage.clear(); // Xóa sạch tất cả các quyền cũ
+      localStorage.setItem('isPartner', 'true'); // Chỉ lưu quyền đối tác
       navigate('/partner/pickup');
     } else {
       alert('Sai mật khẩu đối tác!');
