@@ -12,23 +12,21 @@ L.Icon.Default.mergeOptions({ iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/di
 
 export default function PartnerPickupPage() {
   const [activeTab, setActiveTab] = useState('dispatch'); // 'dispatch' | 'moving' | 'done' | 'vehicles' | 'drivers'
-  
-  const [orders, setOrders] = useState([]); // Chờ thu
+
+  const [orders, setOrders] = useState([]);           // Chờ thu
   const [movingOrders, setMovingOrders] = useState([]); // Đang thu
-  const [doneOrders, setDoneOrders] = useState([]); // Đã thu
+  const [doneOrders, setDoneOrders] = useState([]);     // Đã thu
   const [vehicles, setVehicles] = useState([]);
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [defaultPartnerId, setDefaultPartnerId] = useState(null);
 
-  // State cho Modal Phân công
   const [showModal, setShowModal] = useState(false);
   const [selectedOrders, setSelectedOrders] = useState([]);
   const [selectedVehicle, setSelectedVehicle] = useState('');
   const [selectedDriver, setSelectedDriver] = useState('');
   const [creating, setCreating] = useState(false);
 
-  // State cho Modal Thêm/Sửa
   const [showFleetModal, setShowFleetModal] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [savingFleet, setSavingFleet] = useState(false);
@@ -53,33 +51,64 @@ export default function PartnerPickupPage() {
     if (data) setDefaultPartnerId(data.id);
   };
 
+  // Tách riêng từng query để 1 cái lỗi không làm hỏng cả trang
   const fetchData = async () => {
     setLoading(true);
+
+    // 1. Đơn chờ thu
     try {
       const pendingData = await getOrdersNeedingPickup();
-      setOrders(pendingData);
+      setOrders(pendingData || []);
+    } catch (err) {
+      console.error('getOrdersNeedingPickup lỗi:', err);
+      setOrders([]);
+    }
 
+    // 2. Đơn đã thu
+    try {
       const doneData = await getOrdersPickedUp();
-      setDoneOrders(doneData);
+      setDoneOrders(doneData || []);
+    } catch (err) {
+      console.error('getOrdersPickedUp lỗi:', err);
+      setDoneOrders([]);
+    }
 
-      // Lấy đơn đang thu hồi (thùng đang picking_up)
-      const { data: movingBoxes } = await supabase.from('boxes').select('*, orders(*)').eq('status', 'picking_up');
+    // 3. Đơn đang thu — query trực tiếp từ boxes (an toàn, không phụ thuộc relation)
+    try {
+      const { data: movingBoxes, error } = await supabase
+        .from('boxes')
+        .select('*, orders(*)')
+        .eq('status', 'picking_up');
+      if (error) throw error;
+
       const movingOrdersMap = {};
       (movingBoxes || []).forEach(b => {
-        if (!movingOrdersMap[b.order_id]) movingOrdersMap[b.order_id] = { ...b.orders, picking_count: 0 };
+        if (!b.orders) return;
+        if (!movingOrdersMap[b.order_id]) {
+          movingOrdersMap[b.order_id] = { ...b.orders, picking_count: 0, box_ids: [] };
+        }
         movingOrdersMap[b.order_id].picking_count += 1;
+        movingOrdersMap[b.order_id].box_ids.push(b.id);
       });
       setMovingOrders(Object.values(movingOrdersMap));
-      
-      const vData = await getPickupVehicles();
-      const dData = await getAvailableDriversForPickup();
-      setVehicles(vData);
-      setDrivers(dData);
     } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
+      console.error('moving boxes lỗi:', err);
+      setMovingOrders([]);
     }
+
+    // 4. Xe + tài xế
+    try {
+      const [vData, dData] = await Promise.all([
+        getPickupVehicles().catch(() => []),
+        getAvailableDriversForPickup().catch(() => []),
+      ]);
+      setVehicles(vData || []);
+      setDrivers(dData || []);
+    } catch (err) {
+      console.error('fleet lỗi:', err);
+    }
+
+    setLoading(false);
   };
 
   const handleToggleOrder = (order) => {
@@ -108,9 +137,11 @@ export default function PartnerPickupPage() {
         points, notes: 'Đối tác tạo chuyến thu hồi'
       });
 
-      alert('Tạo chuyến thành công!');
+      alert('Tạo chuyến thành công! Chuyển sang tab Đang thu hồi.');
       setShowModal(false);
       setSelectedOrders([]);
+      setSelectedVehicle('');
+      setSelectedDriver('');
       setActiveTab('moving');
       fetchData();
     } catch (err) {
@@ -140,9 +171,22 @@ export default function PartnerPickupPage() {
   const openFleetModal = (item = null) => {
     setEditingItem(item);
     if (activeTab === 'vehicles') {
-      setFormData({ plate_number: item?.plate_number || '', capacity_boxes: item?.capacity_boxes || 30, status: item?.status || 'idle', notes: item?.notes || '', name: '', phone: '', license_number: '', years_experience: 0, favorite_routes_text: '' });
+      setFormData({
+        plate_number: item?.plate_number || '',
+        capacity_boxes: item?.capacity_boxes || 30,
+        status: item?.status || 'idle',
+        notes: item?.notes || '',
+        name: '', phone: '', license_number: '', years_experience: 0, favorite_routes_text: '',
+      });
     } else {
-      setFormData({ plate_number: '', capacity_boxes: 30, status: 'idle', notes: item?.notes || '', name: item?.name || '', phone: item?.phone || '', license_number: item?.license_number || '', years_experience: item?.years_experience || 0, favorite_routes_text: (item?.favorite_routes || []).join(', ') });
+      setFormData({
+        plate_number: '', capacity_boxes: 30, status: 'idle', notes: item?.notes || '',
+        name: item?.name || '',
+        phone: item?.phone || '',
+        license_number: item?.license_number || '',
+        years_experience: item?.years_experience || 0,
+        favorite_routes_text: (item?.favorite_routes || []).join(', '),
+      });
     }
     setShowFleetModal(true);
   };
@@ -151,11 +195,26 @@ export default function PartnerPickupPage() {
     setSavingFleet(true);
     try {
       if (activeTab === 'vehicles') {
-        const payload = { plate_number: formData.plate_number.toUpperCase(), capacity_boxes: formData.capacity_boxes, max_boxes: formData.capacity_boxes, status: formData.status, vehicle_type: 'pickup', notes: formData.notes, partner_id: defaultPartnerId };
+        const payload = {
+          plate_number: formData.plate_number.toUpperCase(),
+          capacity_boxes: formData.capacity_boxes,
+          max_boxes: formData.capacity_boxes,
+          status: formData.status,
+          vehicle_type: 'pickup',
+          notes: formData.notes,
+          partner_id: defaultPartnerId,
+        };
         if (editingItem) await supabase.from('vehicles').update(payload).eq('id', editingItem.id);
         else await supabase.from('vehicles').insert([payload]);
       } else {
-        const payload = { name: formData.name, phone: formData.phone, license_number: formData.license_number, years_experience: parseInt(formData.years_experience) || 0, favorite_routes: formData.favorite_routes_text.split(',').map(r => r.trim()).filter(Boolean), status: formData.status, driver_type: 'pickup', notes: formData.notes, partner_id: defaultPartnerId };
+        const payload = {
+          name: formData.name, phone: formData.phone,
+          license_number: formData.license_number,
+          years_experience: parseInt(formData.years_experience) || 0,
+          favorite_routes: formData.favorite_routes_text.split(',').map(r => r.trim()).filter(Boolean),
+          status: formData.status, driver_type: 'pickup', notes: formData.notes,
+          partner_id: defaultPartnerId,
+        };
         if (editingItem) await supabase.from('drivers').update(payload).eq('id', editingItem.id);
         else await supabase.from('drivers').insert([payload]);
       }
@@ -180,16 +239,18 @@ export default function PartnerPickupPage() {
     }
   };
 
-  const mapCenter = orders.length > 0 
+  const mapCenter = orders.length > 0
     ? [orders[0].delivery_lat || 12.6662, orders[0].delivery_lng || 108.0382]
-    : [12.6662, 108.0382];
+    : movingOrders.length > 0
+      ? [movingOrders[0].delivery_lat || 12.6662, movingOrders[0].delivery_lng || 108.0382]
+      : [12.6662, 108.0382];
 
   if (loading) return <div className="p-20 text-center">Đang tải dữ liệu...</div>;
 
   return (
     <div className="bg-gray-50 min-h-screen py-8 font-sans">
       <div className="max-w-7xl mx-auto px-4 space-y-6">
-        
+
         {/* Header */}
         <div className="flex justify-between items-center bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
           <div>
@@ -229,7 +290,7 @@ export default function PartnerPickupPage() {
           </button>
         </div>
 
-        {/* TAB 1: ĐIỀU PHỐI THU HỒI */}
+        {/* TAB 1: ĐIỀU PHỐI */}
         {activeTab === 'dispatch' && (
           <div className="grid lg:grid-cols-2 gap-6 h-[calc(100vh-320px)]">
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-y-auto flex flex-col">
@@ -311,8 +372,7 @@ export default function PartnerPickupPage() {
                       <MapPin className="w-4 h-4 text-gray-400 mt-0.5" /> {order.delivery_address}
                     </p>
                     <p className="text-sm font-bold text-yellow-600 mb-3">{order.picking_count} thùng</p>
-                    
-                    <button 
+                    <button
                       onClick={() => handleMarkArrived(order.id)}
                       className="w-full bg-agro-dark hover:bg-agro-dark/90 text-white font-bold py-2 rounded-lg text-sm flex items-center justify-center gap-2"
                     >
@@ -350,7 +410,7 @@ export default function PartnerPickupPage() {
           </div>
         )}
 
-        {/* TAB 4: XE THU HỒI */}
+        {/* TAB 4: XE */}
         {activeTab === 'vehicles' && (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
             {vehicles.map(v => (
@@ -379,7 +439,7 @@ export default function PartnerPickupPage() {
           </div>
         )}
 
-        {/* TAB 5: TÀI XẾ THU HỒI */}
+        {/* TAB 5: TÀI XẾ */}
         {activeTab === 'drivers' && (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
             {drivers.map(d => (
@@ -449,7 +509,7 @@ export default function PartnerPickupPage() {
         </div>
       )}
 
-      {/* MODAL THÊM/SỬA XE HOẶC TÀI XẾ */}
+      {/* MODAL THÊM/SỬA */}
       {showFleetModal && (
         <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
