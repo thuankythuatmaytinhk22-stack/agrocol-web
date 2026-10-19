@@ -1,227 +1,170 @@
 import { supabase } from '../lib/supabaseClient';
 
-// Giá mỗi thùng (250.000đ)
-export const PRICE_PER_BOX = 250000;
+// === LẤY DANH SÁCH ĐIỂM CHỜ THU ===
+export const getOrdersNeedingPickup = async () => {
+  // 1. Lấy TẤT CẢ các thùng đang chờ thu (bỏ qua trạng thái của Đơn hàng)
+  const { data: boxes, error: boxError } = await supabase
+    .from('boxes')
+    .select('*')
+    .in('status', ['delivered', 'waiting_return', 'waiting', 'in_use', 'delivering']); 
+    
+  if (boxError) throw boxError;
+  if (!boxes || boxes.length === 0) return [];
 
-// === LẤY DOANH THU THEO KHOẢNG THỜI GIAN ===
-export const getRevenueByDateRange = async (startDate, endDate) => {
-  const { data, error } = await supabase
+  // 2. Lấy danh sách ID của các đơn hàng từ những thùng này
+  const orderIds = [...new Set(boxes.map(b => b.order_id))];
+
+  // 3. Lấy thông tin các Đơn hàng đó
+  const { data: orders, error: orderError } = await supabase
     .from('orders')
     .select('*')
-    .gte('created_at', startDate)
-    .lte('created_at', endDate)
-    .neq('status', 'cancelled')
+    .in('id', orderIds);
+    
+  if (orderError) throw orderError;
+  if (!orders || orders.length === 0) return [];
+
+  const boxMap = {};
+  (boxes || []).forEach((b) => {
+    if (!boxMap[b.order_id]) boxMap[b.order_id] = [];
+    boxMap[b.order_id].push(b);
+  });
+
+  return orders
+    .map((order) => {
+      const orderBoxes = boxMap[order.id] || [];
+      
+      let estimatedArrival = 'Chưa xác định';
+      if (order.send_date && order.pickup_time) {
+        const startDate = new Date(`${order.send_date}T${order.pickup_time}:00`);
+        const arrivalDate = new Date(startDate.getTime() + 5 * 60 * 60 * 1000);
+        estimatedArrival = arrivalDate.toLocaleString('vi-VN', {
+          weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+        });
+      }
+
+      return {
+        ...order,
+        waiting_count: orderBoxes.length,
+        box_ids: orderBoxes.map(b => b.id),
+        estimated_arrival: estimatedArrival,
+      };
+    })
+    .filter((order) => order.waiting_count > 0);
+};
+
+// === LẤY DANH SÁCH ĐÃ THU HỒI ===
+export const getOrdersPickedUp = async () => {
+  const { data: orders, error: orderError } = await supabase
+    .from('orders')
+    .select('*')
+    .eq('status', 'delivered')
     .order('created_at', { ascending: false });
-  if (error) throw error;
+  if (orderError) throw orderError;
+  if (!orders || orders.length === 0) return [];
 
-  const orders = data || [];
-  const totalRevenue = orders.reduce(
-    (sum, o) => sum + (o.boxes || 0) * PRICE_PER_BOX,
-    0
-  );
+  const { data: boxes, error: boxError } = await supabase
+    .from('boxes')
+    .select('*')
+    .eq('status', 'ready'); 
+  if (boxError) throw boxError;
 
-  return {
-    orders,
-    totalRevenue,
-    totalOrders: orders.length,
-    totalBoxes: orders.reduce((sum, o) => sum + (o.boxes || 0), 0),
-    averageOrderValue: orders.length > 0 ? totalRevenue / orders.length : 0,
-  };
+  const boxMap = {};
+  (boxes || []).forEach((b) => {
+    if (!boxMap[b.order_id]) boxMap[b.order_id] = [];
+    boxMap[b.order_id].push(b);
+  });
+
+  return orders
+    .map((order) => {
+      const orderBoxes = boxMap[order.id] || [];
+      return {
+        ...order,
+        ready_count: orderBoxes.length,
+      };
+    })
+    .filter((order) => order.ready_count > 0);
 };
 
-// === LẤY DOANH THU HÔM NAY ===
-export const getTodayRevenue = async () => {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-
-  return getRevenueByDateRange(today.toISOString(), tomorrow.toISOString());
-};
-
-// === LẤY DOANH THU 7 NGÀY QUA ===
-export const getWeekRevenue = async () => {
-  const today = new Date();
-  const start = new Date(today);
-  start.setDate(start.getDate() - 7);
-  start.setHours(0, 0, 0, 0);
-
-  return getRevenueByDateRange(start.toISOString(), new Date().toISOString());
-};
-
-// === LẤY DOANH THU 30 NGÀY QUA ===
-export const getMonthRevenue = async () => {
-  const today = new Date();
-  const start = new Date(today);
-  start.setDate(start.getDate() - 30);
-  start.setHours(0, 0, 0, 0);
-
-  return getRevenueByDateRange(start.toISOString(), new Date().toISOString());
-};
-
-// === LẤY TỔNG DOANH THU TẤT CẢ ===
-export const getTotalRevenue = async () => {
+// === LẤY XE THU HỒI ===
+export const getPickupVehicles = async () => {
   const { data, error } = await supabase
-    .from('orders')
-    .select('boxes, status')
-    .neq('status', 'cancelled');
+    .from('vehicles')
+    .select('*')
+    .eq('vehicle_type', 'pickup')
+    .order('plate_number');
   if (error) throw error;
-
-  const orders = data || [];
-  return {
-    totalRevenue: orders.reduce(
-      (sum, o) => sum + (o.boxes || 0) * PRICE_PER_BOX,
-      0
-    ),
-    totalOrders: orders.length,
-    totalBoxes: orders.reduce((sum, o) => sum + (o.boxes || 0), 0),
-  };
+  return data || [];
 };
 
-// === LẤY DOANH THU THEO NGÀY TRONG THÁNG (cho biểu đồ) ===
-export const getDailyRevenue = async (month = new Date().getMonth() + 1, year = new Date().getFullYear()) => {
-  // Lấy ngày đầu tháng và ngày cuối tháng
-  const start = new Date(year, month - 1, 1);
-  const end = new Date(year, month, 0); 
-  end.setHours(23, 59, 59, 999);
-
+// === LẤY TÀI XẾ THU HỒI ===
+export const getAvailableDriversForPickup = async () => {
   const { data, error } = await supabase
-    .from('orders')
-    .select('boxes, created_at, status')
-    .gte('created_at', start.toISOString())
-    .lte('created_at', end.toISOString())
-    .neq('status', 'cancelled')
-    .order('created_at', { ascending: true });
+    .from('drivers')
+    .select('*')
+    .eq('driver_type', 'pickup'); 
   if (error) throw error;
+  return data || [];
+};
 
-  const dailyMap = {};
-  // Tạo sẵn các ngày trong tháng (Từ ngày 1 đến cuối tháng)
-  for (let d = 1; d <= end.getDate(); d++) {
-    const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-    dailyMap[dateStr] = { date: dateStr, day: d, revenue: 0, orders: 0 };
+// === TẠO CHUYẾN THU HỒI MỚI ===
+export const createPickupTrip = async ({ vehicleId, driverId, points, notes }) => {
+  const tripCode = `PT-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+  const totalBoxes = points.reduce((sum, p) => sum + (p.boxes || 0), 0);
+  const estimatedDurationMinutes = points.length * 30 + 60;
+
+  // 1. Tạo chuyến đi
+  const { data: trip, error: tripError } = await supabase
+    .from('pickup_trips')
+    .insert([{ 
+      trip_code: tripCode, 
+      vehicle_id: vehicleId, 
+      driver_id: driverId, 
+      status: 'in_progress', 
+      total_boxes: totalBoxes, 
+      total_points: points.length, 
+      estimated_duration_minutes: estimatedDurationMinutes, 
+      notes: notes || '', 
+      started_at: new Date().toISOString() 
+    }])
+    .select()
+    .single();
+  if (tripError) throw tripError;
+
+  // 2. Tạo các điểm dừng
+  const tripPoints = points.map((p, index) => ({ 
+    trip_id: trip.id, 
+    order_id: p.orderId, 
+    order_code: p.orderCode, 
+    pickup_lat: p.lat, 
+    pickup_lng: p.lng, 
+    pickup_address: p.address, 
+    boxes_to_pickup: p.boxes, 
+    status: 'pending', 
+    sequence: index + 1 
+  }));
+  
+  const { error: pointsError } = await supabase.from('pickup_trip_points').insert(tripPoints);
+  if (pointsError) throw pointsError;
+
+  // 3. Cập nhật trạng thái xe và tài xế
+  await supabase.from('vehicles').update({ 
+    status: 'in_transit', 
+    current_driver_id: driverId, 
+    current_route: `Thu hồi ${points.length} điểm`, 
+    departed_at: new Date().toISOString(), 
+    estimated_return_at: new Date(Date.now() + estimatedDurationMinutes * 60 * 1000).toISOString() 
+  }).eq('id', vehicleId);
+  
+  await supabase.from('drivers').update({ 
+    status: 'on_duty', 
+    current_vehicle_id: vehicleId 
+  }).eq('id', driverId);
+
+  // 4. Chuyển trạng thái thùng sang picking_up
+  const boxIds = points.flatMap((p) => p.boxIds || []);
+  if (boxIds.length > 0) {
+    await supabase.from('boxes').update({ status: 'picking_up' }).in('id', boxIds);
   }
 
-  (data || []).forEach((order) => {
-    const key = order.created_at.split('T')[0];
-    if (dailyMap[key]) {
-      dailyMap[key].revenue += (order.boxes || 0) * PRICE_PER_BOX;
-      dailyMap[key].orders += 1;
-    }
-  });
-
-  return Object.values(dailyMap);
-};
-
-// === LẤY TOP SẢN PHẨM BÁN CHẠY ===
-export const getTopProducts = async (limit = 5, days = 30) => {
-  const start = new Date();
-  start.setDate(start.getDate() - days);
-
-  const { data, error } = await supabase
-    .from('orders')
-    .select('product_type, boxes, weight')
-    .gte('created_at', start.toISOString())
-    .neq('status', 'cancelled');
-  if (error) throw error;
-
-  const productMap = {};
-  (data || []).forEach((order) => {
-    const key = order.product_type || 'Khác';
-    if (!productMap[key]) {
-      productMap[key] = { product: key, boxes: 0, orders: 0, revenue: 0 };
-    }
-    productMap[key].boxes += order.boxes || 0;
-    productMap[key].orders += 1;
-    productMap[key].revenue += (order.boxes || 0) * PRICE_PER_BOX;
-  });
-
-  return Object.values(productMap)
-    .sort((a, b) => b.revenue - a.revenue)
-    .slice(0, limit);
-};
-
-// === LẤY TOP KHÁCH HÀNG ===
-export const getTopCustomers = async (limit = 5, days = 30) => {
-  const start = new Date();
-  start.setDate(start.getDate() - days);
-
-  const { data, error } = await supabase
-    .from('orders')
-    .select('customer_name, customer_phone, boxes')
-    .gte('created_at', start.toISOString())
-    .neq('status', 'cancelled');
-  if (error) throw error;
-
-  const customerMap = {};
-  (data || []).forEach((order) => {
-    const key = order.customer_phone || order.customer_name || 'Khách lẻ';
-    if (!customerMap[key]) {
-      customerMap[key] = {
-        name: order.customer_name || 'Khách lẻ',
-        phone: order.customer_phone || '--',
-        boxes: 0,
-        orders: 0,
-        revenue: 0,
-      };
-    }
-    customerMap[key].boxes += order.boxes || 0;
-    customerMap[key].orders += 1;
-    customerMap[key].revenue += (order.boxes || 0) * PRICE_PER_BOX;
-  });
-
-  return Object.values(customerMap)
-    .sort((a, b) => b.revenue - a.revenue)
-    .slice(0, limit);
-};
-
-// === FORMAT TIỀN ===
-export const formatVND = (value) => {
-  if (!value) return '0đ';
-  if (value >= 1000000000) return `${(value / 1000000000).toFixed(1)}B`;
-  if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
-  if (value >= 1000) return `${(value / 1000).toFixed(0)}K`;
-  return `${value.toLocaleString('vi-VN')}đ`;
-};
-
-export const formatVNDFull = (value) => {
-  return `${Number(value || 0).toLocaleString('vi-VN')}đ`;
-};
-
-// === EXPORT CSV ===
-export const exportToCSV = (orders) => {
-  const headers = [
-    'Mã đơn',
-    'Khách hàng',
-    'SĐT',
-    'Nông sản',
-    'Số thùng',
-    'Doanh thu',
-    'Trạng thái',
-    'Ngày tạo',
-  ];
-  const rows = orders.map((o) => [
-    o.order_code,
-    o.customer_name || '',
-    o.customer_phone || '',
-    o.product_type || '',
-    o.boxes || 0,
-    (o.boxes || 0) * PRICE_PER_BOX,
-    o.status || '',
-    new Date(o.created_at).toLocaleString('vi-VN'),
-  ]);
-
-  const csvContent = [
-    headers.join(','),
-    ...rows.map((r) => r.map((v) => `"${v}"`).join(',')),
-  ].join('\n');
-
-  const blob = new Blob(['\uFEFF' + csvContent], {
-    type: 'text/csv;charset=utf-8;',
-  });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `doanh-thu-agrocold-${new Date().toISOString().split('T')[0]}.csv`;
-  link.click();
-  URL.revokeObjectURL(url);
+  return trip;
 };
