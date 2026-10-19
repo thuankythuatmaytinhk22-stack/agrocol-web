@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabaseClient';
-import { Route, AlertTriangle, Truck, MapPin, Navigation } from 'lucide-react';
+import { Route, AlertTriangle, Truck, MapPin } from 'lucide-react';
 import { simulateColdTelemetry } from '../../lib/coldChain';
 import { optimizeRoutes, stopKindLabel } from '../../lib/routeOptimizer';
 import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
@@ -31,6 +31,9 @@ export default function DispatchPage() {
   const [selectedDate, setSelectedDate] = useState(
     new Date().toISOString().split('T')[0]
   );
+  // State lưu trữ đường đi thực tế (OSRM) cho từng xe
+  const [routePaths, setRoutePaths] = useState({});
+  const [loadingRoutes, setLoadingRoutes] = useState(false);
 
   useEffect(() => {
     fetchOrders();
@@ -43,6 +46,45 @@ export default function DispatchPage() {
       .order('created_at', { ascending: false });
     if (data) setOrders(data);
     setLoading(false);
+  };
+
+  // Hàm lấy đường đi thực tế từ OSRM
+  const fetchRealRoutes = async (vehicles) => {
+    setLoadingRoutes(true);
+    const newRoutePaths = {};
+
+    await Promise.all(
+      vehicles.map(async (vehicle) => {
+        try {
+          const coords = vehicle.path.map((p) => `${p.lng},${p.lat}`).join(';');
+          const res = await fetch(
+            `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`
+          );
+          const data = await res.json();
+          
+          if (data.routes && data.routes[0]) {
+            // OSRM trả về [lng, lat], cần đảo thành [lat, lng] cho Leaflet
+            const roadPath = data.routes[0].geometry.coordinates.map((c) => [c[1], c[0]]);
+            newRoutePaths[vehicle.id] = roadPath;
+          }
+        } catch (err) {
+          console.error(`Lỗi lấy đường đi cho ${vehicle.vehicleName}:`, err);
+          // Fallback: Nối thẳng nếu OSRM lỗi
+          newRoutePaths[vehicle.id] = vehicle.path.map((p) => [p.lat, p.lng]);
+        }
+      })
+    );
+
+    setRoutePaths(newRoutePaths);
+    setLoadingRoutes(false);
+  };
+
+  const handleOptimize = () => {
+    const newPlan = optimizeRoutes(orders, selectedDate);
+    setPlan(newPlan);
+    if (!newPlan.empty) {
+      fetchRealRoutes(newPlan.vehicles);
+    }
   };
 
   const shippingAlerts = orders
@@ -68,7 +110,7 @@ export default function DispatchPage() {
             Điều phối AI
           </h2>
           <p className="text-sm text-gray-500 mt-1">
-            Tự động gom nhóm đơn hàng theo tuyến và tối ưu lộ trình từng xe
+            Tự động gom nhóm đơn hàng và tối ưu lộ trình trên thực tế
           </p>
         </div>
         <div className="flex flex-col sm:flex-row gap-3">
@@ -79,10 +121,11 @@ export default function DispatchPage() {
             className="border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-agro-dark text-agro-dark font-medium text-sm"
           />
           <button
-            onClick={() => setPlan(optimizeRoutes(orders, selectedDate))}
-            className="bg-agro-yellow hover:bg-yellow-500 text-agro-dark font-bold px-6 py-3 rounded-xl whitespace-nowrap transition-colors text-sm"
+            onClick={handleOptimize}
+            disabled={loadingRoutes}
+            className="bg-agro-yellow hover:bg-yellow-500 text-agro-dark font-bold px-6 py-3 rounded-xl whitespace-nowrap transition-colors text-sm disabled:opacity-50"
           >
-            Tính tuyến tối ưu
+            {loadingRoutes ? 'Đang tính toán...' : 'Tính tuyến tối ưu'}
           </button>
         </div>
       </div>
@@ -111,7 +154,7 @@ export default function DispatchPage() {
       {/* Kết quả */}
       {plan && !plan.empty && (
         <div className="space-y-6">
-          {/* Tổng quan tiết kiệm */}
+          {/* Tổng quan */}
           <div className="bg-agro-dark text-white rounded-2xl p-6 flex items-center justify-between">
             <div>
               <p className="text-sm text-white/70 font-medium">Tổng tiết kiệm so với FIFO</p>
@@ -123,11 +166,68 @@ export default function DispatchPage() {
             <Truck className="w-16 h-16 text-white/20" />
           </div>
 
-          {/* Danh sách từng xe */}
-          <div className="space-y-8">
+          {/* BẢN ĐỒ CHUNG CHO TẤT CẢ CÁC XE */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="p-4 border-b border-gray-100">
+              <h3 className="font-bold text-agro-dark flex items-center gap-2">
+                <MapPin className="w-5 h-5" />
+                Bản đồ điều phối ({plan.vehicles.length} tuyến xe)
+              </h3>
+            </div>
+            <div className="h-[600px] w-full">
+              <MapContainer 
+                center={[plan.vehicles[0].path[0].lat, plan.vehicles[0].path[0].lng]} 
+                zoom={6} 
+                style={{ height: '100%', width: '100%' }}
+              >
+                <TileLayer
+                  attribution='&copy; <a href="https://www.maptiler.com/copyright/">MapTiler</a>'
+                  url={`https://api.maptiler.com/maps/outdoor-v2/{z}/{x}/{y}.png?key=0kgv1m784H4kd86re01y`}
+                />
+                
+                {/* Vẽ đường đi cho từng xe */}
+                {plan.vehicles.map((vehicle) => {
+                  const path = routePaths[vehicle.id] || vehicle.path.map(p => [p.lat, p.lng]);
+                  return (
+                    <Polyline
+                      key={vehicle.id}
+                      positions={path}
+                      pathOptions={{ 
+                        color: vehicle.color, 
+                        weight: 5, 
+                        opacity: 0.8,
+                        dashArray: vehicle.orders.length > 3 ? '10, 5' : undefined 
+                      }}
+                    />
+                  );
+                })}
+
+                {/* Vẽ Marker cho từng điểm */}
+                {plan.vehicles.map((vehicle) => 
+                  vehicle.path.map((p, i) => (
+                    <Marker 
+                      key={`${vehicle.id}-${p.id}`} 
+                      position={[p.lat, p.lng]} 
+                      icon={createIcon(vehicle.color, i === 0 ? 'K' : i)}
+                    >
+                      <Popup>
+                        <div className="font-sans">
+                          <p className="font-bold" style={{ color: vehicle.color }}>{vehicle.vehicleName}</p>
+                          <p className="font-semibold text-agro-dark mt-1">{stopKindLabel(p.kind)}</p>
+                          <p className="text-xs text-gray-600">{p.label}</p>
+                        </div>
+                      </Popup>
+                    </Marker>
+                  ))
+                )}
+              </MapContainer>
+            </div>
+          </div>
+
+          {/* Danh sách chi tiết từng xe */}
+          <div className="space-y-4">
             {plan.vehicles.map((vehicle) => (
               <div key={vehicle.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                {/* Header xe */}
                 <div 
                   className="px-6 py-4 border-b border-gray-100 flex items-center justify-between"
                   style={{ backgroundColor: `${vehicle.color}10` }}
@@ -156,70 +256,28 @@ export default function DispatchPage() {
                   </div>
                 </div>
 
-                {/* Bản đồ và danh sách điểm */}
-                <div className="grid md:grid-cols-2 gap-6 p-6">
-                  {/* Cột trái: Danh sách điểm */}
-                  <div>
-                    <h4 className="font-bold text-agro-dark mb-3 flex items-center gap-2">
-                      <MapPin className="w-4 h-4" />
-                      Lộ trình chi tiết
-                    </h4>
-                    <ol className="space-y-3 relative before:absolute before:left-[15px] before:top-2 before:bottom-2 before:w-0.5 before:bg-gray-200">
-                      {vehicle.path.map((p, i) => (
-                        <li key={p.id} className="relative pl-10">
-                          <div 
-                            className="absolute left-0 top-1 w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs z-10 border-2 border-white shadow-sm"
-                            style={{ backgroundColor: vehicle.color }}
-                          >
-                            {i === 0 ? <Truck className="w-4 h-4" /> : i + 1}
-                          </div>
-                          <div className="bg-gray-50 rounded-lg p-3 border border-gray-100">
-                            <p className="font-semibold text-sm text-agro-dark">{stopKindLabel(p.kind)}</p>
-                            <p className="text-xs text-gray-600 mt-0.5">{p.label}</p>
-                            {p.product && (
-                              <p className="text-[10px] text-green-700 font-medium mt-1">
-                                {p.product.name} · {p.shelfHours}h
-                              </p>
-                            )}
-                          </div>
-                        </li>
-                      ))}
-                    </ol>
-                  </div>
-
-                  {/* Cột phải: Bản đồ */}
-                  <div className="h-[400px] rounded-xl overflow-hidden border border-gray-200">
-                    <MapContainer 
-                      center={[vehicle.path[0].lat, vehicle.path[0].lng]} 
-                      zoom={6} 
-                      style={{ height: '100%', width: '100%' }}
-                    >
-                      <TileLayer
-                        attribution='&copy; <a href="https://www.maptiler.com/copyright/">MapTiler</a>'
-                        url={`https://api.maptiler.com/maps/outdoor-v2/{z}/{x}/{y}.png?key=0kgv1m784H4kd86re01y`}
-                      />
-                      {/* Vẽ đường nối các điểm với màu của xe */}
-                      <Polyline
-                        positions={vehicle.path.map((p) => [p.lat, p.lng])}
-                        pathOptions={{ color: vehicle.color, weight: 4, opacity: 0.8 }}
-                      />
-                      {/* Đánh dấu các điểm */}
-                      {vehicle.path.map((p, i) => (
-                        <Marker 
-                          key={p.id} 
-                          position={[p.lat, p.lng]} 
-                          icon={createIcon(vehicle.color, i === 0 ? 'K' : i)}
+                <div className="p-6">
+                  <ol className="space-y-3 relative before:absolute before:left-[15px] before:top-2 before:bottom-2 before:w-0.5 before:bg-gray-200">
+                    {vehicle.path.map((p, i) => (
+                      <li key={p.id} className="relative pl-10">
+                        <div 
+                          className="absolute left-0 top-1 w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs z-10 border-2 border-white shadow-sm"
+                          style={{ backgroundColor: vehicle.color }}
                         >
-                          <Popup>
-                            <div className="font-sans">
-                              <p className="font-bold text-agro-dark">{p.label}</p>
-                              <p className="text-xs text-gray-500">{stopKindLabel(p.kind)}</p>
-                            </div>
-                          </Popup>
-                        </Marker>
-                      ))}
-                    </MapContainer>
-                  </div>
+                          {i === 0 ? <Truck className="w-4 h-4" /> : i + 1}
+                        </div>
+                        <div className="bg-gray-50 rounded-lg p-3 border border-gray-100">
+                          <p className="font-semibold text-sm text-agro-dark">{stopKindLabel(p.kind)}</p>
+                          <p className="text-xs text-gray-600 mt-0.5">{p.label}</p>
+                          {p.product && (
+                            <p className="text-[10px] text-green-700 font-medium mt-1">
+                              {p.product.name} · {p.shelfHours}h
+                            </p>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
                 </div>
               </div>
             ))}
@@ -233,7 +291,7 @@ export default function DispatchPage() {
           <Route className="w-16 h-16 text-gray-300 mx-auto mb-3" />
           <h3 className="font-bold text-agro-dark mb-1">Chưa có lộ trình nào được tính</h3>
           <p className="text-sm text-gray-500 mb-4 max-w-md mx-auto">
-            Chọn ngày và bấm "Tính tuyến tối ưu". Hệ thống sẽ tự động gom nhóm các đơn hàng theo điểm lấy và vẽ lộ trình riêng cho từng xe.
+            Chọn ngày và bấm "Tính tuyến tối ưu". Hệ thống sẽ tự động gom nhóm đơn, vẽ lộ trình thực tế bằng AI và hiển thị trên bản đồ chung.
           </p>
         </div>
       )}
