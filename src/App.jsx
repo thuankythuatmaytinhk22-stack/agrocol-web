@@ -19,7 +19,7 @@ import BoxesPage from './pages/admin/BoxesPage';
 import IoTPage from './pages/admin/IoTPage';
 import RevenuePage from './pages/admin/RevenuePage';
 
-// Partner Pages (MỚI)
+// Partner Pages
 import PartnerLoginPage from './pages/PartnerLoginPage';
 import PartnerPickupPage from './pages/partner/PartnerPickupPage';
 
@@ -58,21 +58,11 @@ function App() {
           <Route path="boxes" element={<BoxesPage />} />
           <Route path="iot" element={<IoTPage />} />
           <Route path="revenue" element={<RevenuePage />} />
-          <Route
-            path="reports"
-            element={<ComingSoon title="Báo cáo & Thống kê" />}
-          />
-          <Route
-            path="settings"
-            element={<ComingSoon title="Cài đặt hệ thống" />}
-          />
+          <Route path="reports" element={<ComingSoon title="Báo cáo & Thống kê" />} />
+          <Route path="settings" element={<ComingSoon title="Cài đặt hệ thống" />} />
         </Route>
 
-        {/* === PARTNER ROUTES (MỚI) === */}
-        <Route path="/partner/login" element={<PartnerLoginPage />} />
-        <Route path="/partner/pickup" element={<PartnerPickupPage />} />
-
-        {/* === PUBLIC ROUTES === */}
+        {/* === PUBLIC ROUTES (Có Header) === */}
         <Route
           path="*"
           element={
@@ -83,15 +73,13 @@ function App() {
                   <Route path="/" element={<HomePage />} />
                   <Route path="/booking" element={<BookingPage />} />
                   <Route path="/tracking" element={<TrackingPage />} />
-                  <Route
-                    path="/tracking/:orderCode"
-                    element={<TrackingPage />}
-                  />
-                  <Route
-                    path="/box-management"
-                    element={<BoxManagementPage />}
-                  />
+                  <Route path="/tracking/:orderCode" element={<TrackingPage />} />
+                  <Route path="/box-management" element={<BoxManagementPage />} />
                   <Route path="/login" element={<LoginPage />} />
+                  
+                  {/* Partner Routes nằm trong Public để có Header */}
+                  <Route path="/partner/login" element={<PartnerLoginPage />} />
+                  <Route path="/partner/pickup" element={<PartnerPickupPage />} />
                 </Routes>
               </main>
               <Footer />

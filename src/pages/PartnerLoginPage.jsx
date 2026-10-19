@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { Lock, ArrowLeft } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Lock } from 'lucide-react';
 
 const PARTNER_PASSWORD = 'doitac123';
 
@@ -19,18 +19,8 @@ export default function PartnerLoginPage() {
   };
 
   return (
-    <div className="bg-agro-bg min-h-screen flex flex-col items-center justify-center px-4 relative">
-      {/* Nút quay lại trang chủ */}
-      <Link 
-        to="/" 
-        className="absolute top-6 left-6 flex items-center gap-2 text-agro-dark font-semibold hover:text-agro-dark/80 transition-colors"
-      >
-        <ArrowLeft className="w-5 h-5" />
-        Về Trang chủ
-      </Link>
-
+    <div className="bg-agro-bg min-h-screen flex flex-col items-center justify-center px-4 py-12">
       <form onSubmit={handleLogin} className="bg-white p-10 rounded-2xl shadow-lg w-full max-w-md border border-gray-100">
-        {/* Logo */}
         <div className="flex justify-center mb-6">
           <img src="/logo.jpg" alt="AgroCold Logo" className="w-24 h-24 object-contain" />
         </div>
