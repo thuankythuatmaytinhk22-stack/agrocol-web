@@ -48,40 +48,21 @@ function routeStats(points) {
 function buildStops(orders) {
   return orders.flatMap((order) => {
     const product = matchProduct(order.product_type);
-
-    // Ưu tiên dùng tọa độ thực từ database, fallback về geocode
     const pickup = (order.pickup_lat && order.pickup_lng)
-      ? { name: order.pickup_address || 'Điểm lấy hàng', lat: order.pickup_lat, lng: order.pickup_lng, matched: true }
+      ? { name: order.pickup_address || 'Điểm lấy hàng', lat: order.pickup_lat, lng: order.pickup_lng }
       : geocodeAddress(order.pickup_address);
     const delivery = (order.delivery_lat && order.delivery_lng)
-      ? { name: order.delivery_address || 'Điểm giao hàng', lat: order.delivery_lat, lng: order.delivery_lng, matched: true }
+      ? { name: order.delivery_address || 'Điểm giao hàng', lat: order.delivery_lat, lng: order.delivery_lng }
       : geocodeAddress(order.delivery_address);
 
     return [
-      {
-        id: `${order.id}-p`,
-        order,
-        kind: 'pickup',
-        product,
-        label: pickup.name,
-        lat: pickup.lat,
-        lng: pickup.lng,
-        shelfHours: product.shelfHours,
-      },
-      {
-        id: `${order.id}-d`,
-        order,
-        kind: 'delivery',
-        product,
-        label: delivery.name,
-        lat: delivery.lat,
-        lng: delivery.lng,
-        shelfHours: product.shelfHours,
-      },
+      { id: `${order.id}-p`, order, kind: 'pickup', product, label: pickup.name, lat: pickup.lat, lng: pickup.lng, shelfHours: product.shelfHours },
+      { id: `${order.id}-d`, order, kind: 'delivery', product, label: delivery.name, lat: delivery.lat, lng: delivery.lng, shelfHours: product.shelfHours },
     ];
   });
 }
 
+// Thuật toán Greedy đơn giản (giữ nguyên)
 function greedyRoute(stops) {
   const picked = new Set();
   const remaining = [...stops];
@@ -107,6 +88,7 @@ function greedyRoute(stops) {
   return path;
 }
 
+// Tối ưu 2-opt
 function twoOptImprove(path) {
   let improved = true;
   let bestPath = [...path];
@@ -133,6 +115,7 @@ function twoOptImprove(path) {
   return bestPath;
 }
 
+// FIFO (để so sánh)
 function fifoRoute(stops) {
   const path = [{ ...HUB, kind: 'hub', label: HUB.name, id: 'hub' }];
   const byOrder = [];
@@ -159,36 +142,76 @@ export function filterOrdersByDate(orders, dateStr) {
   });
 }
 
+// Hàm chính: Tối ưu và chia thành nhiều tuyến xe
 export function optimizeRoutes(orders = [], filterDate = null) {
   const filtered = filterDate ? filterOrdersByDate(orders, filterDate) : orders;
   const active = filtered.filter((o) => ['pending', 'packed', 'shipping'].includes(o.status));
 
   if (!active.length) {
-    return {
-      empty: true,
-      old: { points: [HUB], ...routeStats([HUB]) },
-      next: { points: [HUB], ...routeStats([HUB]) },
-      savedKm: 0,
-      savedMinutes: 0,
-      count: 0,
+    return { 
+      empty: true, 
+      vehicles: [], 
+      totalSavedKm: 0, 
+      totalSavedMinutes: 0 
     };
   }
 
-  const stops = buildStops(active);
-  const oldPath = fifoRoute(stops);
-  const greedyPath = greedyRoute(stops);
-  const newPath = twoOptImprove(greedyPath);
+  // BƯỚC 1: Gom nhóm các đơn hàng theo điểm lấy (Pickup Address)
+  // Những đơn nào cùng điểm lấy hàng thì gom vào 1 nhóm (1 xe)
+  const groupMap = {};
+  active.forEach((order) => {
+    // Tạo key từ tọa độ hoặc địa chỉ pickup để gom nhóm
+    const key = order.pickup_address || 'unknown';
+    if (!groupMap[key]) groupMap[key] = [];
+    groupMap[key].push(order);
+  });
 
-  const old = { points: oldPath, ...routeStats(oldPath) };
-  const next = { points: newPath, ...routeStats(newPath) };
+  const vehicles = [];
+  let totalSavedKm = 0;
+  let totalSavedMinutes = 0;
+
+  // BƯỚC 2: Mỗi nhóm đơn hàng sẽ được tối ưu riêng
+  Object.values(groupMap).forEach((groupOrders, index) => {
+    const stops = buildStops(groupOrders);
+    const oldPath = fifoRoute(stops);
+    const greedyPath = greedyRoute(stops);
+    const newPath = twoOptImprove(greedyPath);
+
+    const oldStats = routeStats(oldPath);
+    const newStats = routeStats(newPath);
+
+    const savedKm = Math.max(0, oldStats.km - newStats.km);
+    const savedMinutes = Math.max(0, oldStats.minutes - newStats.minutes);
+
+    totalSavedKm += savedKm;
+    totalSavedMinutes += savedMinutes;
+
+    vehicles.push({
+      id: `vehicle-${index + 1}`,
+      vehicleName: `Xe ${index + 1}`, // Tên tạm, sẽ gán biển số sau
+      orders: groupOrders,
+      path: newPath,
+      stats: newStats,
+      savedKm,
+      savedMinutes,
+      // Màu cho từng tuyến đường
+      color: [
+        '#0F4C3A', // Xanh đậm
+        '#FF6B9D', // Hồng
+        '#4CAF50', // Xanh lá
+        '#F4C542', // Vàng
+        '#9C27B0', // Tím
+        '#FF5722', // Cam
+      ][index % 6],
+    });
+  });
 
   return {
     empty: false,
     count: active.length,
-    old,
-    next,
-    savedKm: Number(Math.max(0, old.km - next.km).toFixed(1)),
-    savedMinutes: Math.max(0, old.minutes - next.minutes),
+    vehicles: vehicles,
+    totalSavedKm: Number(totalSavedKm.toFixed(1)),
+    totalSavedMinutes: totalSavedMinutes,
   };
 }
 

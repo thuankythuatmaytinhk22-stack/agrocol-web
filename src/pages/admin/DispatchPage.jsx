@@ -1,9 +1,28 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabaseClient';
-import { Route, AlertTriangle } from 'lucide-react';
+import { Route, AlertTriangle, Truck, MapPin, Navigation } from 'lucide-react';
 import { simulateColdTelemetry } from '../../lib/coldChain';
 import { optimizeRoutes, stopKindLabel } from '../../lib/routeOptimizer';
-import RouteMap from '../../components/map/RouteMap';
+import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+
+// Fix Leaflet icon
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+});
+
+const createIcon = (color, label) => {
+  return L.divIcon({
+    className: 'custom-marker',
+    html: `<div style="background:${color}; color:white; width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:12px; border:3px solid white; box-shadow:0 2px 6px rgba(0,0,0,0.3);">${label}</div>`,
+    iconSize: [32, 32],
+    iconAnchor: [16, 16],
+  });
+};
 
 export default function DispatchPage() {
   const [orders, setOrders] = useState([]);
@@ -49,7 +68,7 @@ export default function DispatchPage() {
             Điều phối AI
           </h2>
           <p className="text-sm text-gray-500 mt-1">
-            Tối ưu lộ trình giao hàng và cảnh báo nhiệt độ theo thời gian thực
+            Tự động gom nhóm đơn hàng theo tuyến và tối ưu lộ trình từng xe
           </p>
         </div>
         <div className="flex flex-col sm:flex-row gap-3">
@@ -76,113 +95,145 @@ export default function DispatchPage() {
             Cảnh báo nhiệt độ ({shippingAlerts.length})
           </h3>
           {shippingAlerts.map(({ order, tel }) => (
-            <div
-              key={order.id}
-              className="bg-amber-50 border border-amber-100 rounded-2xl p-4 flex items-start gap-3"
-            >
+            <div key={order.id} className="bg-amber-50 border border-amber-100 rounded-2xl p-4 flex items-start gap-3">
               <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
               <div>
                 <p className="font-bold text-agro-dark text-sm">
-                  Cảnh báo: Nhiệt độ thùng {order.order_code} có xu hướng tăng lên{' '}
-                  {tel.predicted30}°C
-                  {tel.breachIn ? ` trong ${tel.breachIn} phút tới` : ''}.
+                  Cảnh báo thùng {order.order_code} có xu hướng tăng lên {tel.predicted30}°C.
                 </p>
-                <p className="text-sm text-gray-600 font-medium mt-1">
-                  {tel.advice}
-                </p>
+                <p className="text-sm text-gray-600 font-medium mt-1">{tel.advice}</p>
               </div>
             </div>
           ))}
         </div>
       )}
 
-      {/* Kết quả lộ trình */}
-      {plan && (
+      {/* Kết quả */}
+      {plan && !plan.empty && (
         <div className="space-y-6">
-          <div className="grid md:grid-cols-3 gap-6">
-            <div className="bg-agro-dark text-white rounded-2xl p-6">
-              <p className="text-sm text-white/70 font-medium">
-                Tiết kiệm so với FIFO
-              </p>
+          {/* Tổng quan tiết kiệm */}
+          <div className="bg-agro-dark text-white rounded-2xl p-6 flex items-center justify-between">
+            <div>
+              <p className="text-sm text-white/70 font-medium">Tổng tiết kiệm so với FIFO</p>
               <p className="text-4xl font-extrabold text-agro-yellow mt-1">
-                {plan.savedMinutes} phút
+                {plan.totalSavedMinutes} phút
               </p>
-              <p className="text-sm mt-2 font-medium">
-                {plan.savedKm} km · {plan.count || 0} đơn đang xử lý
-              </p>
+              <p className="text-sm mt-1">{plan.totalSavedKm} km · {plan.count} đơn · {plan.vehicles.length} xe</p>
             </div>
-            <div className="md:col-span-2 bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
-              {plan.empty ? (
-                <p className="text-gray-500 font-medium">
-                  Không có đơn hàng nào trong ngày{' '}
-                  {new Date(selectedDate).toLocaleDateString('vi-VN')}.
-                </p>
-              ) : (
-                <>
-                  <p className="font-bold text-agro-dark mb-3 text-sm">
-                    Tuyến đường tối ưu: {plan.next.points.map((p) => p.label).join(' → ')}
-                  </p>
-                  <p className="text-sm text-gray-500 font-medium mb-4">
-                    Tiết kiệm {plan.savedMinutes} phút và {plan.savedKm} km so với lộ trình cũ ({plan.old.km} km).
-                  </p>
-                  <ol className="space-y-2">
-                    {plan.next.points.map((p, i) => (
-                      <li key={p.id} className="flex items-center gap-3 text-sm">
-                        <span className="w-7 h-7 rounded-full bg-agro-dark text-white font-bold flex items-center justify-center text-xs flex-shrink-0">
-                          {i + 1}
-                        </span>
-                        <span className="font-semibold text-agro-dark">
-                          {stopKindLabel(p.kind)}
-                        </span>
-                        <span className="text-gray-600 truncate">{p.label}</span>
-                        {p.product && (
-                          <span className="ml-auto text-xs bg-green-50 text-agro-dark px-2 py-1 rounded-full font-bold whitespace-nowrap">
-                            {p.product.name} · {p.shelfHours}h
-                          </span>
-                        )}
-                      </li>
-                    ))}
-                  </ol>
-                </>
-              )}
-            </div>
+            <Truck className="w-16 h-16 text-white/20" />
           </div>
 
-          {!plan.empty && (
-            <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
-              <h3 className="font-bold text-agro-dark mb-4 flex items-center gap-2">
-                🗺️ Bản đồ lộ trình tối ưu
-              </h3>
-              <RouteMap points={plan.next.points} />
-              <div className="flex items-center gap-4 mt-4 text-xs font-medium text-gray-600">
-                <div className="flex items-center gap-1.5">
-                  <span className="w-3 h-3 rounded-full bg-agro-yellow border border-white shadow"></span>
-                  Kho
+          {/* Danh sách từng xe */}
+          <div className="space-y-8">
+            {plan.vehicles.map((vehicle) => (
+              <div key={vehicle.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                {/* Header xe */}
+                <div 
+                  className="px-6 py-4 border-b border-gray-100 flex items-center justify-between"
+                  style={{ backgroundColor: `${vehicle.color}10` }}
+                >
+                  <div className="flex items-center gap-3">
+                    <div 
+                      className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold"
+                      style={{ backgroundColor: vehicle.color }}
+                    >
+                      <Truck className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-agro-dark text-lg">{vehicle.vehicleName}</h3>
+                      <p className="text-xs text-gray-500">{vehicle.orders.length} đơn hàng</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-4 text-sm">
+                    <div className="text-right">
+                      <p className="text-xs text-gray-500">Quãng đường</p>
+                      <p className="font-bold text-agro-dark">{vehicle.stats.km} km</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-gray-500">Thời gian</p>
+                      <p className="font-bold text-agro-dark">{vehicle.stats.minutes} phút</p>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="w-3 h-3 rounded-full bg-agro-green border border-white shadow"></span>
-                  Lấy hàng
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="w-3 h-3 rounded-full bg-agro-dark border border-white shadow"></span>
-                  Giao hàng
+
+                {/* Bản đồ và danh sách điểm */}
+                <div className="grid md:grid-cols-2 gap-6 p-6">
+                  {/* Cột trái: Danh sách điểm */}
+                  <div>
+                    <h4 className="font-bold text-agro-dark mb-3 flex items-center gap-2">
+                      <MapPin className="w-4 h-4" />
+                      Lộ trình chi tiết
+                    </h4>
+                    <ol className="space-y-3 relative before:absolute before:left-[15px] before:top-2 before:bottom-2 before:w-0.5 before:bg-gray-200">
+                      {vehicle.path.map((p, i) => (
+                        <li key={p.id} className="relative pl-10">
+                          <div 
+                            className="absolute left-0 top-1 w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs z-10 border-2 border-white shadow-sm"
+                            style={{ backgroundColor: vehicle.color }}
+                          >
+                            {i === 0 ? <Truck className="w-4 h-4" /> : i + 1}
+                          </div>
+                          <div className="bg-gray-50 rounded-lg p-3 border border-gray-100">
+                            <p className="font-semibold text-sm text-agro-dark">{stopKindLabel(p.kind)}</p>
+                            <p className="text-xs text-gray-600 mt-0.5">{p.label}</p>
+                            {p.product && (
+                              <p className="text-[10px] text-green-700 font-medium mt-1">
+                                {p.product.name} · {p.shelfHours}h
+                              </p>
+                            )}
+                          </div>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+
+                  {/* Cột phải: Bản đồ */}
+                  <div className="h-[400px] rounded-xl overflow-hidden border border-gray-200">
+                    <MapContainer 
+                      center={[vehicle.path[0].lat, vehicle.path[0].lng]} 
+                      zoom={6} 
+                      style={{ height: '100%', width: '100%' }}
+                    >
+                      <TileLayer
+                        attribution='&copy; <a href="https://www.maptiler.com/copyright/">MapTiler</a>'
+                        url={`https://api.maptiler.com/maps/outdoor-v2/{z}/{x}/{y}.png?key=0kgv1m784H4kd86re01y`}
+                      />
+                      {/* Vẽ đường nối các điểm với màu của xe */}
+                      <Polyline
+                        positions={vehicle.path.map((p) => [p.lat, p.lng])}
+                        pathOptions={{ color: vehicle.color, weight: 4, opacity: 0.8 }}
+                      />
+                      {/* Đánh dấu các điểm */}
+                      {vehicle.path.map((p, i) => (
+                        <Marker 
+                          key={p.id} 
+                          position={[p.lat, p.lng]} 
+                          icon={createIcon(vehicle.color, i === 0 ? 'K' : i)}
+                        >
+                          <Popup>
+                            <div className="font-sans">
+                              <p className="font-bold text-agro-dark">{p.label}</p>
+                              <p className="text-xs text-gray-500">{stopKindLabel(p.kind)}</p>
+                            </div>
+                          </Popup>
+                        </Marker>
+                      ))}
+                    </MapContainer>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            ))}
+          </div>
         </div>
       )}
 
-      {/* Hướng dẫn khi chưa tính */}
+      {/* Hướng dẫn */}
       {!plan && (
         <div className="bg-white rounded-2xl p-12 border border-gray-100 shadow-sm text-center">
           <Route className="w-16 h-16 text-gray-300 mx-auto mb-3" />
-          <h3 className="font-bold text-agro-dark mb-1">
-            Chưa có lộ trình nào được tính
-          </h3>
+          <h3 className="font-bold text-agro-dark mb-1">Chưa có lộ trình nào được tính</h3>
           <p className="text-sm text-gray-500 mb-4 max-w-md mx-auto">
-            Chọn ngày và bấm "Tính tuyến tối ưu" để AI phân tích và đề xuất
-            lộ trình giao hàng tối ưu nhất.
+            Chọn ngày và bấm "Tính tuyến tối ưu". Hệ thống sẽ tự động gom nhóm các đơn hàng theo điểm lấy và vẽ lộ trình riêng cho từng xe.
           </p>
         </div>
       )}
