@@ -50,7 +50,7 @@ export default function PartnerPickupPage() {
     try {
       const { data, error } = await supabase.from('partners').select('id').limit(1).maybeSingle();
       if (error) {
-        console.warn("Không thể lấy partner_id (có thể bảng partners trống hoặc lỗi RLS):", error.message);
+        console.warn("Không thể lấy partner_id:", error.message);
         return;
       }
       if (data) setDefaultPartnerId(data.id);
@@ -59,11 +59,10 @@ export default function PartnerPickupPage() {
     }
   };
 
-  // Tách riêng từng query để 1 cái lỗi không làm hỏng cả trang
   const fetchData = async () => {
     setLoading(true);
 
-    // 1. Đơn chờ thu
+    // 1. Đơn chờ thu (Dùng hàm của bạn để lấy dữ liệu chuẩn)
     try {
       const pendingData = await getOrdersNeedingPickup();
       setOrders(pendingData || []);
@@ -72,7 +71,7 @@ export default function PartnerPickupPage() {
       setOrders([]);
     }
 
-    // 2. Đơn đã thu
+    // 2. Đơn đã thu (Dùng hàm của bạn)
     try {
       const doneData = await getOrdersPickedUp();
       setDoneOrders(doneData || []);
@@ -81,7 +80,7 @@ export default function PartnerPickupPage() {
       setDoneOrders([]);
     }
 
-    // 3. Đơn đang thu — query trực tiếp từ boxes (an toàn, không phụ thuộc relation)
+    // 3. Đơn đang thu (Sửa lại query cho an toàn, không dùng relation phức tạp)
     try {
       const { data: movingBoxes, error } = await supabase
         .from('boxes')
@@ -258,7 +257,6 @@ export default function PartnerPickupPage() {
   return (
     <div className="bg-gray-50 min-h-screen py-8 font-sans">
       <div className="max-w-7xl mx-auto px-4 space-y-6">
-
         {/* Header */}
         <div className="flex justify-between items-center bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
           <div>
