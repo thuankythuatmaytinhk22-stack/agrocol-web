@@ -17,7 +17,6 @@ import {
   Eye,
   AlertTriangle,
   Clock,
-  TrendingUp,
   Calendar,
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
@@ -111,7 +110,7 @@ export default function TrackingPage() {
           setRoadPath(coordsArray);
           setRouteInfo({
             distance: (route.distance / 1000).toFixed(1), // km
-            duration: Math.round(route.duration / 60), // phút
+            duration: Math.round(route.duration / 60), // phút (di chuyển thuần)
           });
         }
       } catch (err) {
@@ -136,27 +135,42 @@ export default function TrackingPage() {
 
   const currentStepIndex = steps.findIndex((s) => s.key === order?.status);
 
-  // Tính ngày dự kiến đến (Dựa trên khoảng cách)
+  // Hàm tính toán thời gian đến chi tiết
   const getEstimatedArrival = () => {
     if (!order) return null;
     if (order.status === 'delivered') return 'Đã giao thành công';
     
-    // Nếu có thông tin quãng đường từ OSRM
     if (routeInfo) {
       const distance = parseFloat(routeInfo.distance);
-      // Giả sử vận tốc trung bình 45km/h
+      
+      // 1. Thời gian di chuyển (Vận tốc 45km/h)
       const travelHours = distance / 45;
-      // Cộng thêm 2 giờ để giao hàng, nghỉ ngơi, kẹt xe
-      const totalHours = travelHours + 2; 
       
-      const startDate = order.send_date ? new Date(order.send_date) : new Date();
-      const arrivalDate = new Date(startDate.getTime() + totalHours * 60 * 60 * 1000);
+      // 2. Thời gian chất hàng (Giả định 1 xe = 1 tiếng)
+      const numVehicles = Math.ceil((order.boxes || 0) / 12) || 1;
+      const loadingHours = numVehicles * 1;
       
-      return arrivalDate.toLocaleDateString('vi-VN', {
+      // 3. Thời gian dự phòng (nghỉ ngơi, kẹt xe) = 1 tiếng
+      const bufferHours = 1;
+      
+      const totalHours = travelHours + loadingHours + bufferHours;
+      
+      // Tạo đối tượng Date từ ngày và giờ đặt hàng
+      const startDateStr = order.send_date || new Date().toISOString().split('T')[0];
+      const startTimeStr = order.pickup_time || '08:00';
+      const startDateTime = new Date(`${startDateStr}T${startTimeStr}:00`);
+      
+      // Cộng thêm tổng thời gian
+      const arrivalDateTime = new Date(startDateTime.getTime() + totalHours * 60 * 60 * 1000);
+      
+      // Định dạng: Thứ X, DD/MM/YYYY lúc HH:mm
+      return arrivalDateTime.toLocaleString('vi-VN', {
         weekday: 'long',
         day: '2-digit',
         month: '2-digit',
-        year: 'numeric'
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
       });
     }
     
@@ -186,7 +200,6 @@ export default function TrackingPage() {
 
   if (!order) return <div className="text-center py-20 font-sans">Không tìm thấy đơn hàng!</div>;
 
-  // Lấy nhiệt độ MỚI NHẤT của đơn hàng này
   const latestOrderTemp = tempHistory.length > 0 ? tempHistory[tempHistory.length - 1] : null;
   const isTempSafe = latestOrderTemp ? (latestOrderTemp.temperature >= TEMP_MIN && latestOrderTemp.temperature <= TEMP_MAX) : true;
   const hasWarningTemp = latestOrderTemp ? !isTempSafe : false;
@@ -263,7 +276,7 @@ export default function TrackingPage() {
                 {order.product_type} | {order.weight} kg | {order.boxes} thùng
               </p>
               
-              <div className="space-y-1 mt-3 mb-6">
+              <div className="space-y-2 mt-3 mb-6">
                 {order.send_date && (
                   <p className="text-sm text-gray-600 font-medium flex items-center gap-2">
                     <Calendar className="w-4 h-4 text-gray-400" />
@@ -276,11 +289,17 @@ export default function TrackingPage() {
                     <span>Giờ đặt: {order.pickup_time}</span>
                   </p>
                 )}
-                {/* NGÀY DỰ KIẾN ĐẾN */}
-                <p className="text-sm text-green-700 font-bold flex items-center gap-2 mt-2 bg-green-50 p-2 rounded-lg">
-                  <Truck className="w-4 h-4" />
-                  <span>Dự kiến đến: {getEstimatedArrival()}</span>
-                </p>
+                {/* KHỐI HIỂN THỊ GIỜ DỰ KIẾN ĐẾN CHI TIẾT */}
+                <div className="bg-green-50 p-3 rounded-lg border border-green-100 mt-2">
+                  <p className="text-xs text-gray-500 font-semibold uppercase mb-1">Dự kiến đến</p>
+                  <p className="text-sm text-green-700 font-bold flex items-start gap-2">
+                    <Truck className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                    <span>{getEstimatedArrival()}</span>
+                  </p>
+                  <p className="text-[10px] text-gray-500 mt-1 italic">
+                    * Đã bao gồm giờ chất hàng, di chuyển và dự phòng
+                  </p>
+                </div>
               </div>
 
               <button onClick={() => setShowDetail(true)} className="inline-flex items-center gap-2 border-2 border-agro-dark text-agro-dark font-bold px-6 py-2 rounded-xl hover:bg-agro-dark hover:text-white transition-colors">
@@ -303,7 +322,7 @@ export default function TrackingPage() {
           </div>
         </div>
 
-        {/* === NHIỆT ĐỘ REALTIME (Chỉ hiện khi shipping) === */}
+        {/* === NHIỆT ĐỘ REALTIME === */}
         {order.status === 'shipping' && (
           <div className={`rounded-2xl p-6 shadow-sm border-2 ${
             hasWarningTemp ? 'bg-red-50 border-red-200'
@@ -369,7 +388,7 @@ export default function TrackingPage() {
             {routeInfo && (
               <div className="flex items-center gap-4 text-xs font-semibold text-gray-600">
                 <span className="flex items-center gap-1">📏 {routeInfo.distance} km</span>
-                <span className="flex items-center gap-1">⏱️ {routeInfo.duration} phút</span>
+                <span className="flex items-center gap-1">⏱️ {routeInfo.duration} phút di chuyển</span>
               </div>
             )}
           </div>
@@ -380,18 +399,15 @@ export default function TrackingPage() {
                 attribution='&copy; <a href="https://www.maptiler.com/copyright/">MapTiler</a>'
                 url={`https://api.maptiler.com/maps/outdoor-v2/{z}/{x}/{y}.png?key=0kgv1m784H4kd86re01y`}
               />
-              {/* Đường đi thực tế */}
               {roadPath.length > 0 && (
                 <Polyline positions={roadPath} pathOptions={{ color: '#0F4C3A', weight: 5, opacity: 0.8 }} />
               )}
-              {/* Fallback nếu OSRM lỗi */}
               {roadPath.length === 0 && (
                 <Polyline
                   positions={[[pickupPoint.lat, pickupPoint.lng], [deliveryPoint.lat, deliveryPoint.lng]]}
                   pathOptions={{ color: '#0F4C3A', weight: 3, opacity: 0.6, dashArray: '8, 8' }}
                 />
               )}
-              {/* Marker A */}
               <Marker position={[pickupPoint.lat, pickupPoint.lng]} icon={createIcon('#4CAF50', 'A')}>
                 <Popup>
                   <div className="font-sans">
@@ -400,7 +416,6 @@ export default function TrackingPage() {
                   </div>
                 </Popup>
               </Marker>
-              {/* Marker B */}
               <Marker position={[deliveryPoint.lat, deliveryPoint.lng]} icon={createIcon('#0F4C3A', 'B')}>
                 <Popup>
                   <div className="font-sans">
@@ -435,11 +450,11 @@ export default function TrackingPage() {
                   <p className="text-sm text-gray-500 font-medium">Xe</p>
                   <p className="font-bold text-agro-dark">Xe tải lạnh AgroCold</p>
                 </div>
-                <div>
+                <div className="col-span-2">
                   <p className="text-sm text-gray-500 font-medium">Dự kiến giao</p>
-                  <p className="font-bold text-agro-dark">{getEstimatedArrival()}</p>
+                  <p className="font-bold text-green-700">{getEstimatedArrival()}</p>
                 </div>
-                <div>
+                <div className="col-span-2">
                   <p className="text-sm text-gray-500 font-medium">Trạng thái nhiệt độ</p>
                   <p className={`font-bold ${isTempSafe ? 'text-agro-green' : 'text-red-600'}`}>
                     {isTempSafe ? 'Within Range' : 'Cần kiểm tra'} · {TEMP_MIN}–{TEMP_MAX}°C
