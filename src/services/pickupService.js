@@ -1,7 +1,8 @@
 import { supabase } from '../lib/supabaseClient';
 
-// === LẤY DANH SÁCH ĐƠN CẦN THU HỒI THÙNG ===
+// === LẤY DANH SÁCH ĐƠN CẦN THU HỒI THÙNG (KÈM GIỜ DỰ KIẾN) ===
 export const getOrdersNeedingPickup = async () => {
+  // 1. Lấy các đơn đã giao hàng thành công
   const { data: orders, error: orderError } = await supabase
     .from('orders')
     .select('*')
@@ -10,25 +11,46 @@ export const getOrdersNeedingPickup = async () => {
   if (orderError) throw orderError;
   if (!orders || orders.length === 0) return [];
 
+  // 2. Lấy thùng đang chờ thu (delivered hoặc waiting_return)
   const { data: boxes, error: boxError } = await supabase
     .from('boxes')
     .select('*')
     .in('status', ['delivered', 'waiting_return']);
   if (boxError) throw boxError;
 
+  // 3. Gom nhóm thùng theo order_id
   const boxMap = {};
   (boxes || []).forEach((b) => {
     if (!boxMap[b.order_id]) boxMap[b.order_id] = [];
     boxMap[b.order_id].push(b);
   });
 
+  // 4. Trả về danh sách đơn kèm số thùng cần thu và giờ dự kiến
   return orders
     .map((order) => {
       const orderBoxes = boxMap[order.id] || [];
+
+      // Tính giờ dự kiến đến (dựa vào ngày gửi + giờ đặt + 4 tiếng di chuyển + 1 tiếng chất hàng)
+      let estimatedArrival = 'Chưa xác định';
+      if (order.send_date && order.pickup_time) {
+        const startDate = new Date(`${order.send_date}T${order.pickup_time}:00`);
+        // Giả sử: 1 tiếng chất hàng + 4 tiếng di chuyển = 5 tiếng
+        const arrivalDate = new Date(startDate.getTime() + 5 * 60 * 60 * 1000);
+        estimatedArrival = arrivalDate.toLocaleString('vi-VN', {
+          weekday: 'long',
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+      }
+
       return {
         ...order,
         boxes_to_pickup: orderBoxes.length,
         box_ids: orderBoxes.map((b) => b.id),
+        estimated_arrival: estimatedArrival,
       };
     })
     .filter((order) => order.boxes_to_pickup > 0);
@@ -45,11 +67,12 @@ export const getPickupVehicles = async () => {
   return data || [];
 };
 
-// === LẤY DANH SÁCH TÀI XẾ AVAILABLE ===
+// === LẤY DANH SÁCH TÀI XẾ THU HỒI AVAILABLE ===
 export const getAvailableDriversForPickup = async () => {
   const { data, error } = await supabase
     .from('drivers')
     .select('*')
+    .eq('driver_type', 'pickup')
     .eq('status', 'available');
   if (error) throw error;
   return data || [];
@@ -193,6 +216,7 @@ export const updateTripStatus = async (tripId, status) => {
 
 // === ĐÁNH DẤU ĐIỂM ĐÃ THU HỒI ===
 export const markPointPickedUp = async (pointId, tripId) => {
+  // 1. Cập nhật trạng thái điểm
   const { error: pointError } = await supabase
     .from('pickup_trip_points')
     .update({
@@ -202,12 +226,14 @@ export const markPointPickedUp = async (pointId, tripId) => {
     .eq('id', pointId);
   if (pointError) throw pointError;
 
+  // 2. Lấy order_id của điểm này
   const { data: point } = await supabase
     .from('pickup_trip_points')
     .select('order_id')
     .eq('id', pointId)
     .single();
 
+  // 3. Cập nhật thùng của đơn → ready
   if (point?.order_id) {
     await supabase
       .from('boxes')
@@ -216,15 +242,18 @@ export const markPointPickedUp = async (pointId, tripId) => {
       .in('status', ['picking_up', 'waiting_return', 'delivered']);
   }
 
+  // 4. Kiểm tra xem chuyến còn điểm nào pending không
   const { data: remaining } = await supabase
     .from('pickup_trip_points')
     .select('id')
     .eq('trip_id', tripId)
     .eq('status', 'pending');
 
+  // 5. Nếu hết điểm → hoàn thành chuyến
   if (!remaining || remaining.length === 0) {
     await updateTripStatus(tripId, 'completed');
 
+    // Lấy thông tin chuyến để reset xe + tài xế
     const { data: trip } = await supabase
       .from('pickup_trips')
       .select('vehicle_id, driver_id')
