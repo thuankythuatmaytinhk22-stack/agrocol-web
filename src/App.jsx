@@ -19,6 +19,10 @@ import BoxesPage from './pages/admin/BoxesPage';
 import IoTPage from './pages/admin/IoTPage';
 import RevenuePage from './pages/admin/RevenuePage';
 
+// Partner Pages (MỚI)
+import PartnerLoginPage from './pages/PartnerLoginPage';
+import PartnerPickupPage from './pages/partner/PartnerPickupPage';
+
 // Component bảo vệ Admin
 function ProtectedAdmin() {
   const isAdmin = localStorage.getItem('isAdmin') === 'true';
@@ -63,6 +67,10 @@ function App() {
             element={<ComingSoon title="Cài đặt hệ thống" />}
           />
         </Route>
+
+        {/* === PARTNER ROUTES (MỚI) === */}
+        <Route path="/partner/login" element={<PartnerLoginPage />} />
+        <Route path="/partner/pickup" element={<PartnerPickupPage />} />
 
         {/* === PUBLIC ROUTES === */}
         <Route

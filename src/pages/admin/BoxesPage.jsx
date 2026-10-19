@@ -1,11 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import {
-  getPickupVehicles,
-  getAvailableDriversForPickup,
-  createPickupTrip,
-} from '../../services/pickupService';
-import {
   Recycle,
   Search,
   MapPin,
@@ -21,24 +16,9 @@ import {
 
 export default function BoxesPage() {
   const [orders, setOrders] = useState([]);
-  const [pickupVehicles, setPickupVehicles] = useState([]);
-  const [pickupDrivers, setPickupDrivers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
-
-  // Modal phân công
-  const [assignModal, setAssignModal] = useState(null);
-  const [selectedVehicle, setSelectedVehicle] = useState('');
-  const [selectedDriver, setSelectedDriver] = useState('');
-  const [scheduledDate, setScheduledDate] = useState(
-    new Date().toISOString().split('T')[0]
-  );
-  const [scheduledTime, setScheduledTime] = useState('08:00');
-  const [notes, setNotes] = useState('');
-  const [assigning, setAssigning] = useState(false);
-
-  // Modal chi tiết
   const [detailModal, setDetailModal] = useState(null);
 
   useEffect(() => {
@@ -47,7 +27,7 @@ export default function BoxesPage() {
 
   const fetchData = async () => {
     try {
-      // Lấy đơn hàng đã giao hoặc đang giao
+      // Lấy đơn đã giao hoặc đang giao
       const { data: orderData } = await supabase
         .from('orders')
         .select('*')
@@ -56,20 +36,6 @@ export default function BoxesPage() {
 
       // Lấy thùng
       const { data: boxesData } = await supabase.from('boxes').select('*');
-
-      // ✅ LẤY XE THU HỒI (pickup)
-      const vehiclesData = await getPickupVehicles();
-
-      // ✅ LẤY TÀI XẾ THU HỒI (pickup)
-      const { data: driversData } = await supabase
-        .from('drivers')
-        .select('*')
-        .eq('driver_type', 'pickup')
-        .eq('status', 'available');
-
-      // Chỉ giữ xe thu hồi đang rảnh
-      setPickupVehicles(vehiclesData.filter((v) => v.status === 'idle'));
-      setPickupDrivers(driversData || []);
 
       // Gộp thùng theo order_id
       const boxMap = {};
@@ -118,15 +84,16 @@ export default function BoxesPage() {
     }
   };
 
+  // Hàm xác định trạng thái
   const getPickupStatus = (order) => {
     if (order.total_boxes === 0) {
       return { level: 'empty', label: 'Chưa có thùng', color: 'gray' };
     }
     if (order.waiting_boxes > 0 && order.picking_up_boxes === 0) {
-      return { level: 'waiting', label: 'Chờ thu hồi', color: 'yellow' };
+      return { level: 'waiting', label: 'Chờ đối tác thu', color: 'yellow' };
     }
     if (order.picking_up_boxes > 0) {
-      return { level: 'picking_up', label: 'Đang thu hồi', color: 'blue' };
+      return { level: 'picking_up', label: 'Đối tác đang thu', color: 'blue' };
     }
     if (order.done_boxes === order.total_boxes) {
       return { level: 'done', label: 'Đã thu hồi', color: 'green' };
@@ -141,121 +108,7 @@ export default function BoxesPage() {
     return { level: 'unknown', label: 'Không xác định', color: 'gray' };
   };
 
-  const openAssignModal = (order) => {
-    setAssignModal(order);
-    setSelectedVehicle('');
-    setSelectedDriver('');
-    setScheduledDate(new Date().toISOString().split('T')[0]);
-    setScheduledTime('08:00');
-    setNotes('');
-  };
-
-  const handleAssign = async () => {
-    if (!selectedVehicle || !selectedDriver) {
-      alert('Vui lòng chọn xe thu hồi và tài xế thu hồi!');
-      return;
-    }
-
-    setAssigning(true);
-    try {
-      const points = [
-        {
-          orderId: assignModal.id,
-          orderCode: assignModal.order_code,
-          lat: assignModal.pickup_lat || 12.6662,
-          lng: assignModal.pickup_lng || 108.0382,
-          address: assignModal.pickup_address,
-          boxes: assignModal.waiting_boxes,
-          boxIds: assignModal.waiting_box_ids,
-        },
-      ];
-
-      await createPickupTrip({
-        vehicleId: selectedVehicle,
-        driverId: selectedDriver,
-        scheduledDate,
-        scheduledTime,
-        points,
-        notes,
-      });
-
-      alert('Phân công thu hồi thành công!');
-      setAssignModal(null);
-      fetchData();
-    } catch (err) {
-      alert('Lỗi: ' + err.message);
-    } finally {
-      setAssigning(false);
-    }
-  };
-
-  const handleMarkDone = async (order) => {
-    if (
-      !window.confirm(
-        `Xác nhận đã thu hồi ${order.picking_up_boxes} thùng của đơn ${order.order_code}?`
-      )
-    )
-      return;
-
-    try {
-      // Cập nhật thùng picking_up → ready
-      const { data: boxes } = await supabase
-        .from('boxes')
-        .select('id')
-        .eq('order_id', order.id)
-        .in('status', ['picking_up', 'waiting_return']);
-
-      if (boxes && boxes.length > 0) {
-        const boxIds = boxes.map((b) => b.id);
-        await supabase
-          .from('boxes')
-          .update({ status: 'ready' })
-          .in('id', boxIds);
-      }
-
-      // Reset xe + tài xế nếu có trip liên quan
-      const { data: trips } = await supabase
-        .from('pickup_trips')
-        .select('*')
-        .eq('status', 'in_progress');
-
-      if (trips && trips.length > 0) {
-        for (const trip of trips) {
-          if (trip.vehicle_id) {
-            await supabase
-              .from('vehicles')
-              .update({
-                status: 'idle',
-                current_driver_id: null,
-                current_route: null,
-                departed_at: null,
-                estimated_return_at: null,
-              })
-              .eq('id', trip.vehicle_id);
-          }
-          if (trip.driver_id) {
-            await supabase
-              .from('drivers')
-              .update({ status: 'available', current_vehicle_id: null })
-              .eq('id', trip.driver_id);
-          }
-          await supabase
-            .from('pickup_trips')
-            .update({
-              status: 'completed',
-              completed_at: new Date().toISOString(),
-            })
-            .eq('id', trip.id);
-        }
-      }
-
-      alert('Đã thu hồi thùng thành công!');
-      fetchData();
-    } catch (err) {
-      alert('Lỗi: ' + err.message);
-    }
-  };
-
+  // Lọc
   const filteredOrders = orders.filter((o) => {
     if (filter === 'waiting' && o.waiting_boxes === 0) return false;
     if (filter === 'picking_up' && o.picking_up_boxes === 0) return false;
@@ -272,6 +125,7 @@ export default function BoxesPage() {
     );
   });
 
+  // Thống kê
   const stats = {
     total: orders.reduce((sum, o) => sum + o.total_boxes, 0),
     waiting: orders.reduce((sum, o) => sum + o.waiting_boxes, 0),
@@ -297,14 +151,19 @@ export default function BoxesPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h2 className="text-2xl font-extrabold text-agro-dark flex items-center gap-2">
-          <Recycle className="w-6 h-6" />
-          Quản lý Thùng lạnh
-        </h2>
-        <p className="text-sm text-gray-500 mt-1">
-          {filteredOrders.length} / {orders.length} đơn hàng đang hiển thị
-        </p>
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-extrabold text-agro-dark flex items-center gap-2">
+            <Recycle className="w-6 h-6" />
+            Quản lý Thùng lạnh
+          </h2>
+          <p className="text-sm text-gray-500 mt-1">
+            {filteredOrders.length} / {orders.length} đơn hàng đang hiển thị ·{' '}
+            <span className="font-semibold text-blue-600">
+              Đối tác vận tải chịu trách nhiệm thu gom
+            </span>
+          </p>
+        </div>
       </div>
 
       {/* Stats */}
@@ -314,11 +173,11 @@ export default function BoxesPage() {
           <p className="text-2xl font-bold text-agro-dark">{stats.total}</p>
         </div>
         <div className="bg-yellow-50 rounded-xl p-4 border border-yellow-100">
-          <p className="text-xs text-gray-500 font-medium mb-1">Chờ thu hồi</p>
+          <p className="text-xs text-gray-500 font-medium mb-1">Chờ đối tác thu</p>
           <p className="text-2xl font-bold text-yellow-700">{stats.waiting}</p>
         </div>
         <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
-          <p className="text-xs text-gray-500 font-medium mb-1">Đang thu hồi</p>
+          <p className="text-xs text-gray-500 font-medium mb-1">Đối tác đang thu</p>
           <p className="text-2xl font-bold text-blue-700">{stats.pickingUp}</p>
         </div>
         <div className="bg-green-50 rounded-xl p-4 border border-green-100">
@@ -332,8 +191,8 @@ export default function BoxesPage() {
         <div className="flex gap-2 flex-wrap">
           {[
             { value: 'all', label: 'Tất cả' },
-            { value: 'waiting', label: 'Chờ thu hồi' },
-            { value: 'picking_up', label: 'Đang thu hồi' },
+            { value: 'waiting', label: 'Chờ thu' },
+            { value: 'picking_up', label: 'Đang thu' },
             { value: 'done', label: 'Đã thu hồi' },
           ].map((tab) => (
             <button
@@ -369,9 +228,7 @@ export default function BoxesPage() {
               <th className="px-4 py-4 text-xs font-bold">Địa điểm</th>
               <th className="px-4 py-4 text-xs font-bold">Khách hàng</th>
               <th className="px-4 py-4 text-xs font-bold">Đơn hàng</th>
-              <th className="px-4 py-4 text-xs font-bold text-center">
-                Số thùng
-              </th>
+              <th className="px-4 py-4 text-xs font-bold text-center">Số thùng</th>
               <th className="px-4 py-4 text-xs font-bold">Trạng thái</th>
               <th className="px-4 py-4 text-xs font-bold">Hành động</th>
             </tr>
@@ -379,10 +236,7 @@ export default function BoxesPage() {
           <tbody>
             {filteredOrders.length === 0 ? (
               <tr>
-                <td
-                  colSpan="6"
-                  className="text-center py-10 text-gray-400 text-sm"
-                >
+                <td colSpan="6" className="text-center py-10 text-gray-400 text-sm">
                   Không có đơn hàng nào
                 </td>
               </tr>
@@ -391,8 +245,6 @@ export default function BoxesPage() {
                 const status = getPickupStatus(order);
                 const statusStyle = statusColorMap[status.color];
                 const StatusIcon = statusStyle.icon;
-                const canAssign = order.waiting_boxes > 0;
-                const canMarkDone = order.picking_up_boxes > 0;
 
                 return (
                   <tr
@@ -416,9 +268,7 @@ export default function BoxesPage() {
                       <div className="flex items-start gap-2">
                         <User className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" />
                         <div>
-                          <p className="text-sm font-semibold">
-                            {order.customer_name || 'N/A'}
-                          </p>
+                          <p className="text-sm font-semibold">{order.customer_name || 'N/A'}</p>
                           <p className="text-xs text-gray-500 flex items-center gap-1">
                             <Phone className="w-3 h-3" />
                             {order.customer_phone || '—'}
@@ -427,23 +277,17 @@ export default function BoxesPage() {
                       </div>
                     </td>
                     <td className="px-4 py-4">
-                      <p className="font-bold text-agro-dark text-sm">
-                        {order.order_code}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {order.product_type}
-                      </p>
+                      <p className="font-bold text-agro-dark text-sm">{order.order_code}</p>
+                      <p className="text-xs text-gray-500">{order.product_type}</p>
                     </td>
                     <td className="px-4 py-4 text-center">
                       <div className="inline-flex flex-col items-center">
                         <span className="bg-agro-dark text-white font-bold text-xs px-2 py-1 rounded-lg">
                           {order.total_boxes} thùng
                         </span>
-                        {(order.waiting_boxes > 0 ||
-                          order.picking_up_boxes > 0) && (
+                        {(order.waiting_boxes > 0 || order.picking_up_boxes > 0) && (
                           <span className="text-[10px] text-yellow-600 font-semibold mt-0.5">
-                            {order.waiting_boxes + order.picking_up_boxes} cần
-                            thu
+                            {order.waiting_boxes + order.picking_up_boxes} cần thu
                           </span>
                         )}
                       </div>
@@ -458,24 +302,7 @@ export default function BoxesPage() {
                     </td>
                     <td className="px-4 py-4">
                       <div className="flex gap-2">
-                        {canAssign && (
-                          <button
-                            onClick={() => openAssignModal(order)}
-                            className="bg-agro-yellow hover:bg-yellow-500 text-agro-dark font-bold px-3 py-2 rounded-lg text-xs whitespace-nowrap transition-colors flex items-center gap-1"
-                          >
-                            <Truck className="w-3.5 h-3.5" />
-                            Phân công
-                          </button>
-                        )}
-                        {canMarkDone && (
-                          <button
-                            onClick={() => handleMarkDone(order)}
-                            className="bg-green-500 hover:bg-green-600 text-white font-bold px-3 py-2 rounded-lg text-xs whitespace-nowrap transition-colors flex items-center gap-1"
-                          >
-                            <CheckCircle className="w-3.5 h-3.5" />
-                            Đã thu
-                          </button>
-                        )}
+                        {/* ĐÃ XÓA NÚT PHÂN CÔNG - Đối tác tự làm bên họ */}
                         <button
                           onClick={() => setDetailModal(order)}
                           className="bg-gray-100 hover:bg-gray-200 text-agro-dark font-bold px-3 py-2 rounded-lg text-xs whitespace-nowrap transition-colors flex items-center gap-1"
@@ -493,170 +320,6 @@ export default function BoxesPage() {
         </table>
       </div>
 
-      {/* === MODAL PHÂN CÔNG === */}
-      {assignModal && (
-        <div
-          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-          onClick={() => setAssignModal(null)}
-        >
-          <div
-            className="bg-white rounded-2xl max-w-lg w-full shadow-2xl max-h-[90vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between p-5 border-b border-gray-100 sticky top-0 bg-white z-10">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
-                  <Recycle className="w-5 h-5 text-blue-700" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-agro-dark">
-                    Phân công thu hồi
-                  </h3>
-                  <p className="text-xs text-gray-500">
-                    Đơn {assignModal.order_code}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setAssignModal(null)}
-                className="text-gray-400 hover:text-agro-dark"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-5 space-y-4">
-              <div className="bg-agro-bg rounded-xl p-4 border border-gray-100">
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div>
-                    <p className="text-xs text-gray-500">Khách hàng</p>
-                    <p className="font-semibold">
-                      {assignModal.customer_name}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500">Số thùng cần thu</p>
-                    <p className="font-semibold text-yellow-700">
-                      {assignModal.waiting_boxes} thùng
-                    </p>
-                  </div>
-                  <div className="col-span-2">
-                    <p className="text-xs text-gray-500">Địa điểm</p>
-                    <p className="font-semibold text-xs">
-                      {assignModal.pickup_address}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* ✅ Chỉ chọn xe thu hồi */}
-              <div>
-                <label className="block text-sm font-bold text-agro-dark mb-2">
-                  🚚 Chọn xe thu hồi
-                </label>
-                <select
-                  value={selectedVehicle}
-                  onChange={(e) => setSelectedVehicle(e.target.value)}
-                  className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-agro-dark text-agro-dark font-medium"
-                >
-                  <option value="">-- Chọn xe thu hồi --</option>
-                  {pickupVehicles.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.plate_number} · {v.max_boxes || v.capacity_boxes} thùng
-                    </option>
-                  ))}
-                </select>
-                {pickupVehicles.length === 0 && (
-                  <p className="text-xs text-red-500 mt-1">
-                    ⚠️ Không có xe thu hồi nào rảnh. Vào "Danh sách xe" →
-                    "Xe thu hồi" để thêm.
-                  </p>
-                )}
-              </div>
-
-              {/* ✅ Chỉ chọn tài xế thu hồi */}
-              <div>
-                <label className="block text-sm font-bold text-agro-dark mb-2">
-                  👷 Chọn tài xế thu hồi
-                </label>
-                <select
-                  value={selectedDriver}
-                  onChange={(e) => setSelectedDriver(e.target.value)}
-                  className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-agro-dark text-agro-dark font-medium"
-                >
-                  <option value="">-- Chọn tài xế thu hồi --</option>
-                  {pickupDrivers.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name} · {d.phone}
-                    </option>
-                  ))}
-                </select>
-                {pickupDrivers.length === 0 && (
-                  <p className="text-xs text-red-500 mt-1">
-                    ⚠️ Không có tài xế thu hồi nào rảnh. Vào "Danh sách tài xế"
-                    → "Tài xế thu hồi" để thêm.
-                  </p>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-bold text-agro-dark mb-2">
-                    📅 Ngày đi
-                  </label>
-                  <input
-                    type="date"
-                    value={scheduledDate}
-                    onChange={(e) => setScheduledDate(e.target.value)}
-                    className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-agro-dark text-agro-dark font-medium"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-agro-dark mb-2">
-                    🕒 Giờ xuất phát
-                  </label>
-                  <input
-                    type="time"
-                    value={scheduledTime}
-                    onChange={(e) => setScheduledTime(e.target.value)}
-                    className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-agro-dark text-agro-dark font-medium"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-bold text-agro-dark mb-2">
-                  📝 Ghi chú
-                </label>
-                <textarea
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="VD: Gọi trước cho khách 30 phút..."
-                  rows="2"
-                  className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-agro-dark text-agro-dark font-medium resize-none"
-                />
-              </div>
-            </div>
-
-            <div className="flex gap-3 p-5 border-t border-gray-100 sticky bottom-0 bg-white">
-              <button
-                onClick={() => setAssignModal(null)}
-                className="flex-1 border-2 border-gray-300 hover:bg-gray-50 text-gray-700 font-bold py-3 rounded-xl transition-colors"
-              >
-                Hủy
-              </button>
-              <button
-                onClick={handleAssign}
-                disabled={assigning || !selectedVehicle || !selectedDriver}
-                className="flex-1 bg-agro-yellow hover:bg-yellow-500 text-agro-dark font-bold py-3 rounded-xl transition-colors disabled:opacity-50"
-              >
-                {assigning ? 'Đang xử lý...' : 'Xác nhận'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* === MODAL CHI TIẾT === */}
       {detailModal && (
         <div
@@ -673,12 +336,8 @@ export default function BoxesPage() {
                   <Package className="w-5 h-5 text-agro-yellow" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-agro-dark">
-                    Chi tiết đơn hàng
-                  </h3>
-                  <p className="text-xs text-gray-500">
-                    {detailModal.order_code}
-                  </p>
+                  <h3 className="font-bold text-agro-dark">Chi tiết đơn hàng</h3>
+                  <p className="text-xs text-gray-500">{detailModal.order_code}</p>
                 </div>
               </div>
               <button
@@ -693,46 +352,32 @@ export default function BoxesPage() {
               <div className="bg-agro-bg rounded-xl p-4 space-y-2">
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500">Khách hàng:</span>
-                  <span className="font-semibold">
-                    {detailModal.customer_name}
-                  </span>
+                  <span className="font-semibold">{detailModal.customer_name}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500">SĐT:</span>
-                  <span className="font-semibold">
-                    {detailModal.customer_phone}
-                  </span>
+                  <span className="font-semibold">{detailModal.customer_phone}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500">Tổng thùng:</span>
-                  <span className="font-semibold">
-                    {detailModal.total_boxes} thùng
-                  </span>
+                  <span className="font-semibold">{detailModal.total_boxes} thùng</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Chờ thu hồi:</span>
-                  <span className="font-semibold text-yellow-700">
-                    {detailModal.waiting_boxes} thùng
-                  </span>
+                  <span className="text-gray-500">Chờ thu:</span>
+                  <span className="font-semibold text-yellow-700">{detailModal.waiting_boxes} thùng</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Đang thu hồi:</span>
-                  <span className="font-semibold text-blue-700">
-                    {detailModal.picking_up_boxes} thùng
-                  </span>
+                  <span className="text-gray-500">Đang thu:</span>
+                  <span className="font-semibold text-blue-700">{detailModal.picking_up_boxes} thùng</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Đã thu hồi:</span>
-                  <span className="font-semibold text-green-700">
-                    {detailModal.done_boxes} thùng
-                  </span>
+                  <span className="text-gray-500">Đã thu:</span>
+                  <span className="font-semibold text-green-700">{detailModal.done_boxes} thùng</span>
                 </div>
               </div>
 
               <div className="bg-white rounded-xl border border-gray-100 p-4">
-                <p className="text-xs font-bold text-gray-500 mb-2">
-                  ĐỊA CHỈ LẤY HÀNG
-                </p>
+                <p className="text-xs font-bold text-gray-500 mb-2">ĐỊA CHỈ LẤY HÀNG</p>
                 <p className="text-sm font-semibold text-agro-dark flex items-start gap-2">
                   <MapPin className="w-4 h-4 flex-shrink-0 mt-0.5" />
                   {detailModal.pickup_address}
@@ -740,9 +385,7 @@ export default function BoxesPage() {
               </div>
 
               <div className="bg-white rounded-xl border border-gray-100 p-4">
-                <p className="text-xs font-bold text-gray-500 mb-2">
-                  ĐỊA CHỈ GIAO HÀNG
-                </p>
+                <p className="text-xs font-bold text-gray-500 mb-2">ĐỊA CHỈ GIAO HÀNG</p>
                 <p className="text-sm font-semibold text-agro-dark flex items-start gap-2">
                   <MapPin className="w-4 h-4 flex-shrink-0 mt-0.5" />
                   {detailModal.delivery_address}
