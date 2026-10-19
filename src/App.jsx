@@ -1,5 +1,3 @@
-// Thêm import này ở đầu file
-import PartnerFleetPage from './pages/partner/PartnerFleetPage';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Header from './components/layout/Header';
 import Footer from './components/layout/Footer';
@@ -78,7 +76,7 @@ function App() {
                   <Route path="/tracking/:orderCode" element={<TrackingPage />} />
                   <Route path="/box-management" element={<BoxManagementPage />} />
                   <Route path="/login" element={<LoginPage />} />
-                  <Route path="/partner/fleet" element={<PartnerFleetPage />} />
+                  
                   {/* Partner Routes nằm trong Public để có Header */}
                   <Route path="/partner/login" element={<PartnerLoginPage />} />
                   <Route path="/partner/pickup" element={<PartnerPickupPage />} />
