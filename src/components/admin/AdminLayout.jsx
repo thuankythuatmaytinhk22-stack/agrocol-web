@@ -2,12 +2,16 @@ import { useState } from 'react';
 import { Outlet, Link } from 'react-router-dom';
 import { Menu, Home, Bell } from 'lucide-react';
 import AdminSidebar from './AdminSidebar';
+import GlobalAlertPopup from './GlobalAlertPopup';
 
 export default function AdminLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
     <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
+      {/* Popup cảnh báo toàn cầu (hiển thị trên mọi trang Admin) */}
+      <GlobalAlertPopup />
+
       {/* Sidebar */}
       <AdminSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
