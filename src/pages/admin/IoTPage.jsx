@@ -7,6 +7,7 @@ import {
   resolveAlert,
   formatRelativeTime,
   formatTemp,
+  subscribeToAlerts,
 } from '../../services/iotService';
 import {
   Activity,
@@ -24,26 +25,37 @@ import {
   MapPin,
   ArrowRight,
   Truck,
+  X,
 } from 'lucide-react';
 
 export default function IoTPage() {
-  const {
-    latest = null,
-    history = [],
-    shippingOrders = [],
-    status = null,
-    loading = true,
-    error = null,
-    deviceId = 'esp32-c3-01',
-  } = useIoTSensor() || {};
-
+  const { latest, history, shippingOrders, status, loading, error, deviceId } =
+    useIoTSensor();
   const [alerts, setAlerts] = useState([]);
   const [alertLoading, setAlertLoading] = useState(true);
+  
+  // State cho popup thông báo
+  const [popupAlert, setPopupAlert] = useState(null);
 
   useEffect(() => {
     loadAlerts();
     const interval = setInterval(loadAlerts, 15000);
     return () => clearInterval(interval);
+  }, []);
+
+  // Lắng nghe cảnh báo mới realtime để hiện popup
+  useEffect(() => {
+    const channel = subscribeToAlerts((newAlert) => {
+      // Hiển thị popup
+      setPopupAlert(newAlert);
+      // Tự động đóng popup sau 8 giây
+      setTimeout(() => setPopupAlert(null), 8000);
+      
+      // Cập nhật lại danh sách alerts
+      loadAlerts();
+    });
+
+    return () => channel.unsubscribe();
   }, []);
 
   const loadAlerts = async () => {
@@ -62,6 +74,7 @@ export default function IoTPage() {
     try {
       await resolveAlert(alertId, 'admin');
       setAlerts((prev) => prev.filter((a) => a.id !== alertId));
+      if (popupAlert?.id === alertId) setPopupAlert(null);
     } catch (err) {
       alert('Lỗi: ' + err.message);
     }
@@ -144,7 +157,66 @@ export default function IoTPage() {
   const isLive = secondsAgo < 60 * 20;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 relative">
+      
+      {/* === POPUP CẢNH BÁO NHIỆT ĐỘ VƯỢT NGƯỠNG === */}
+      {popupAlert && (
+        <div className="fixed top-5 right-5 z-[9999] animate-slide-in">
+          <div className={`w-96 p-5 rounded-2xl shadow-2xl border-l-8 ${
+            popupAlert.severity === 'critical' 
+              ? 'bg-red-50 border-red-600' 
+              : 'bg-amber-50 border-amber-500'
+          }`}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
+                  popupAlert.severity === 'critical' ? 'bg-red-100' : 'bg-amber-100'
+                }`}>
+                  <AlertTriangle className={`w-6 h-6 ${
+                    popupAlert.severity === 'critical' ? 'text-red-600' : 'text-amber-600'
+                  }`} />
+                </div>
+                <div>
+                  <h4 className={`font-bold ${
+                    popupAlert.severity === 'critical' ? 'text-red-800' : 'text-amber-800'
+                  }`}>
+                    {popupAlert.severity === 'critical' ? 'CẢNH BÁO NGHIÊM TRỌNG' : 'CẢNH BÁO NHIỆT ĐỘ'}
+                  </h4>
+                  <p className="text-sm text-gray-700 mt-1 font-medium">
+                    {popupAlert.message}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Nhiệt độ hiện tại: <strong>{popupAlert.temperature?.toFixed(1)}°C</strong>
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setPopupAlert(null)}
+                className="text-gray-400 hover:text-gray-700"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="mt-4 flex gap-2">
+              <button 
+                onClick={() => handleResolveAlert(popupAlert.id)}
+                className="flex-1 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-xs font-bold py-2 rounded-lg"
+              >
+                Đã xử lý
+              </button>
+              <Link 
+                to="/admin/iot"
+                className={`flex-1 text-center text-xs font-bold py-2 rounded-lg text-white ${
+                  popupAlert.severity === 'critical' ? 'bg-red-600 hover:bg-red-700' : 'bg-amber-500 hover:bg-amber-600'
+                }`}
+              >
+                Xem chi tiết
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
@@ -406,7 +478,7 @@ export default function IoTPage() {
         <TempSparkline data={history} minTemp={13} maxTemp={15} />
       </div>
 
-      {/* Alerts - Group by order */}
+      {/* Alerts List */}
       <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-bold text-agro-dark flex items-center gap-2">
@@ -431,7 +503,6 @@ export default function IoTPage() {
                 key={orderCode}
                 className="border border-red-200 rounded-xl overflow-hidden"
               >
-                {/* Header đơn */}
                 <div className="bg-red-50 px-4 py-3 border-b border-red-200 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     {orderCode === '__no_order__' ? (
@@ -461,7 +532,6 @@ export default function IoTPage() {
                   </div>
                 </div>
 
-                {/* Danh sách cảnh báo của đơn */}
                 <div className="divide-y divide-red-100">
                   {orderAlerts.map((alert) => {
                     const isCritical = alert.severity === 'critical';
