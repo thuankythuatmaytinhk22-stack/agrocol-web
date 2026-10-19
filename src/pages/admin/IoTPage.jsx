@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { supabase } from '../../lib/supabaseClient';
 import useIoTSensor from '../../hooks/useIoTSensor';
 import TempSparkline from '../../components/admin/TempSparkline';
 import {
@@ -7,7 +8,6 @@ import {
   resolveAlert,
   formatRelativeTime,
   formatTemp,
-  subscribeToAlerts,
 } from '../../services/iotService';
 import {
   Activity,
@@ -45,17 +45,28 @@ export default function IoTPage() {
 
   // Lắng nghe cảnh báo mới realtime để hiện popup
   useEffect(() => {
-    const channel = subscribeToAlerts((newAlert) => {
-      // Hiển thị popup
-      setPopupAlert(newAlert);
-      // Tự động đóng popup sau 8 giây
-      setTimeout(() => setPopupAlert(null), 8000);
-      
-      // Cập nhật lại danh sách alerts
-      loadAlerts();
-    });
+    // Tạo channel và đăng ký listener TRƯỚC
+    const channel = supabase
+      .channel('iot-alerts-popup')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'iot_alerts' },
+        (payload) => {
+          const newAlert = payload.new;
+          // Hiển thị popup
+          setPopupAlert(newAlert);
+          // Tự động đóng popup sau 8 giây
+          setTimeout(() => setPopupAlert(null), 8000);
+          // Cập nhật lại danh sách alerts
+          loadAlerts();
+        }
+      )
+      .subscribe(); // Gọi subscribe SAU CÙNG
 
-    return () => channel.unsubscribe();
+    // Cleanup khi component unmount
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const loadAlerts = async () => {
