@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabaseClient';
 import { getOrdersNeedingPickup, getPickupVehicles, getAvailableDriversForPickup, createPickupTrip } from '../../services/pickupService';
 import { MapPin, Truck, LogOut, Clock, Calendar, CheckCircle, X } from 'lucide-react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -15,6 +15,7 @@ export default function PartnerPickupPage() {
   const [vehicles, setVehicles] = useState([]);
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('upcoming'); // 'upcoming' (sắp tới) hoặc 'waiting' (chờ thu)
   
   // State cho Modal
   const [showModal, setShowModal] = useState(false);
@@ -41,7 +42,7 @@ export default function PartnerPickupPage() {
       
       const vData = await getPickupVehicles();
       const dData = await getAvailableDriversForPickup();
-      setVehicles(vData.filter(v => v.status === 'idle'));
+      setVehicles(vData);
       setDrivers(dData);
     } catch (err) {
       console.error(err);
@@ -68,13 +69,11 @@ export default function PartnerPickupPage() {
         orderId: o.id, orderCode: o.order_code,
         lat: o.delivery_lat || 12.6662, lng: o.delivery_lng || 108.0382,
         address: o.delivery_address,
-        boxes: o.boxes_to_pickup, boxIds: o.box_ids,
+        boxes: o.waiting_count, boxIds: o.box_ids,
       }));
 
       await createPickupTrip({
         vehicleId: selectedVehicle, driverId: selectedDriver,
-        scheduledDate: new Date().toISOString().split('T')[0],
-        scheduledTime: new Date().toTimeString().slice(0, 5),
         points, notes: 'Đối tác tạo chuyến thu hồi'
       });
 
@@ -94,9 +93,15 @@ export default function PartnerPickupPage() {
     navigate('/partner/login');
   };
 
-  // Lấy tâm bản đồ từ đơn hàng đầu tiên
-  const mapCenter = orders.length > 0 
-    ? [orders[0].delivery_lat || 12.6662, orders[0].delivery_lng || 108.0382]
+  // Lọc theo Tab
+  const filteredOrders = orders.filter(o => {
+    if (activeTab === 'upcoming') return o.status === 'shipping'; // Đang giao
+    if (activeTab === 'waiting') return o.status === 'delivered'; // Đã giao, chờ thu
+    return true;
+  });
+
+  const mapCenter = filteredOrders.length > 0 
+    ? [filteredOrders[0].delivery_lat || 12.6662, filteredOrders[0].delivery_lng || 108.0382]
     : [12.6662, 108.0382];
 
   if (loading) return <div className="p-20 text-center">Đang tải dữ liệu...</div>;
@@ -111,21 +116,39 @@ export default function PartnerPickupPage() {
             <h1 className="text-2xl font-bold text-agro-dark flex items-center gap-2">
               <Truck className="w-6 h-6" /> Đối tác thu hồi thùng
             </h1>
-            <p className="text-gray-500 text-sm mt-1">Danh sách điểm cần thu gom thùng rỗng</p>
+            <p className="text-gray-500 text-sm mt-1">Quản lý các điểm cần thu gom thùng rỗng</p>
           </div>
           <button onClick={handleLogout} className="flex items-center gap-2 text-red-600 font-bold hover:text-red-800 px-4 py-2 rounded-lg hover:bg-red-50 transition-colors">
             <LogOut className="w-5 h-5" /> Đăng xuất
           </button>
         </div>
 
-        {/* Layout chính: 1 Cột danh sách + 1 Cột Map */}
-        <div className="grid lg:grid-cols-2 gap-6 h-[calc(100vh-200px)]">
+        {/* Tabs */}
+        <div className="bg-white rounded-2xl p-2 border border-gray-100 shadow-sm flex gap-2">
+          <button
+            onClick={() => setActiveTab('upcoming')}
+            className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-sm transition-colors ${activeTab === 'upcoming' ? 'bg-agro-dark text-white' : 'text-gray-600 hover:bg-gray-50'}`}
+          >
+            <Clock className="w-4 h-4" /> Sắp tới (Đang giao)
+            <span className="px-2 py-0.5 rounded-full text-xs bg-white/20">{orders.filter(o => o.status === 'shipping').length}</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('waiting')}
+            className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-sm transition-colors ${activeTab === 'waiting' ? 'bg-agro-dark text-white' : 'text-gray-600 hover:bg-gray-50'}`}
+          >
+            <CheckCircle className="w-4 h-4" /> Chờ thu hồi (Đã giao)
+            <span className="px-2 py-0.5 rounded-full text-xs bg-white/20">{orders.filter(o => o.status === 'delivered').length}</span>
+          </button>
+        </div>
+
+        {/* Layout chính: Danh sách & Map */}
+        <div className="grid lg:grid-cols-2 gap-6 h-[calc(100vh-250px)]">
           
-          {/* Cột trái: Danh sách điểm */}
+          {/* Cột trái: Danh sách */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-y-auto flex flex-col">
             <div className="p-5 border-b border-gray-100 sticky top-0 bg-white z-10 flex justify-between items-center">
-              <h2 className="font-bold text-agro-dark text-lg">Điểm cần thu ({orders.length})</h2>
-              {selectedOrders.length > 0 && (
+              <h2 className="font-bold text-agro-dark text-lg">Danh sách điểm ({filteredOrders.length})</h2>
+              {selectedOrders.length > 0 && activeTab === 'waiting' && (
                 <button onClick={() => setShowModal(true)} className="bg-agro-yellow hover:bg-yellow-500 text-agro-dark font-bold px-4 py-2 rounded-lg text-sm">
                   Tạo chuyến ({selectedOrders.length})
                 </button>
@@ -133,32 +156,36 @@ export default function PartnerPickupPage() {
             </div>
             
             <div className="flex-1 divide-y divide-gray-100">
-              {orders.length === 0 ? (
-                <div className="p-10 text-center text-gray-500">Không có điểm nào cần thu.</div>
+              {filteredOrders.length === 0 ? (
+                <div className="p-10 text-center text-gray-500">Không có điểm nào.</div>
               ) : (
-                orders.map(order => {
+                filteredOrders.map(order => {
                   const isSelected = selectedOrders.find(o => o.id === order.id);
                   return (
                     <div 
                       key={order.id} 
                       className={`p-5 flex items-start gap-4 transition-colors cursor-pointer ${isSelected ? 'bg-agro-yellow/10' : 'hover:bg-gray-50'}`}
-                      onClick={() => handleToggleOrder(order)}
+                      onClick={() => activeTab === 'waiting' && handleToggleOrder(order)}
                     >
-                      <input type="checkbox" checked={!!isSelected} readOnly className="w-5 h-5 mt-1 accent-agro-dark cursor-pointer" />
+                      {activeTab === 'waiting' && (
+                        <input type="checkbox" checked={!!isSelected} readOnly className="w-5 h-5 mt-1 accent-agro-dark cursor-pointer" />
+                      )}
                       
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-1">
                           <p className="font-bold text-agro-dark">{order.order_code}</p>
-                          <span className="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-semibold">{order.product_type}</span>
+                          {order.status === 'shipping' ? (
+                             <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-bold">Đang giao</span>
+                          ) : (
+                             <span className="text-[10px] bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded font-bold">Chờ thu</span>
+                          )}
                         </div>
                         
-                        {/* Địa chỉ giao hàng (Chính là điểm thu) */}
                         <p className="text-sm text-gray-600 flex items-start gap-1 mb-2">
                           <MapPin className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
                           {order.delivery_address}
                         </p>
 
-                        {/* Thời gian dự kiến thu (Lấy từ ngày giao hàng) */}
                         <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 p-2 rounded-lg">
                           <Clock className="w-3 h-3" /> Dự kiến đến: <strong>{order.estimated_arrival}</strong>
                         </div>
@@ -166,7 +193,7 @@ export default function PartnerPickupPage() {
 
                       <div className="text-right">
                         <p className="text-xs text-gray-500 font-medium mb-1">Cần thu</p>
-                        <p className="font-bold text-yellow-600 text-lg">{order.boxes_to_pickup} thùng</p>
+                        <p className="font-bold text-yellow-600 text-lg">{order.waiting_count} thùng</p>
                       </div>
                     </div>
                   );
@@ -183,8 +210,7 @@ export default function PartnerPickupPage() {
                 url={`https://api.maptiler.com/maps/outdoor-v2/{z}/{x}/{y}.png?key=0kgv1m784H4kd86re01y`}
               />
               
-              {/* Vẽ Marker cho các điểm cần thu */}
-              {orders.map(order => (
+              {filteredOrders.map(order => (
                 <Marker 
                   key={order.id} 
                   position={[order.delivery_lat || 12.6662, order.delivery_lng || 108.0382]}
@@ -193,7 +219,7 @@ export default function PartnerPickupPage() {
                     <div className="font-sans">
                       <p className="font-bold text-agro-dark">{order.order_code}</p>
                       <p className="text-xs text-gray-600">{order.delivery_address}</p>
-                      <p className="text-xs text-yellow-600 font-bold mt-1">{order.boxes_to_pickup} thùng cần thu</p>
+                      <p className="text-xs text-yellow-600 font-bold mt-1">{order.waiting_count} thùng</p>
                       <p className="text-xs text-blue-600 mt-1">Dự kiến: {order.estimated_arrival}</p>
                     </div>
                   </Popup>
@@ -216,7 +242,7 @@ export default function PartnerPickupPage() {
             <div className="p-5 space-y-4">
               <div className="bg-gray-50 p-4 rounded-xl text-sm border border-gray-100">
                 <p><span className="font-semibold">Số điểm:</span> {selectedOrders.length}</p>
-                <p><span className="font-semibold">Tổng thùng:</span> {selectedOrders.reduce((sum, o) => sum + o.boxes_to_pickup, 0)}</p>
+                <p><span className="font-semibold">Tổng thùng:</span> {selectedOrders.reduce((sum, o) => sum + o.waiting_count, 0)}</p>
               </div>
 
               <div>
