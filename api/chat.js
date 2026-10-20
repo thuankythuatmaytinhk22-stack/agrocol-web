@@ -1,13 +1,12 @@
 // api/chat.js — Vercel Serverless Function
 // Dùng Groq (miễn phí, nhanh, không cần thẻ tín dụng)
 
+// DANH MỤC NÔNG SẢN MỚI (Chỉ hỗ trợ 4 loại)
 const PRODUCT_CATALOG = [
-  { name: 'Sầu riêng', minTemp: 13, maxTemp: 15, shelfHours: 36, note: 'Nhạy cảm với nhiệt độ cao' },
-  { name: 'Xoài', minTemp: 10, maxTemp: 13, shelfHours: 48, note: 'Tránh sốc nhiệt' },
-  { name: 'Thanh long', minTemp: 8, maxTemp: 12, shelfHours: 60, note: 'Chịu lạnh tốt' },
-  { name: 'Rau lá', minTemp: 2, maxTemp: 6, shelfHours: 18, note: 'Rất dễ héo' },
-  { name: 'Cà chua', minTemp: 10, maxTemp: 13, shelfHours: 40, note: 'Không để quá lạnh' },
-  { name: 'Nho', minTemp: 0, maxTemp: 4, shelfHours: 72, note: 'Cần lạnh sâu' },
+  { name: 'Sầu riêng', minTemp: 13, maxTemp: 15, shelfHours: 48, note: 'Bảo quản lạnh sâu, tránh sốc nhiệt' },
+  { name: 'Bơ', minTemp: 4, maxTemp: 13, shelfHours: 72, note: 'Bảo quản mát, tránh ánh sáng trực tiếp' },
+  { name: 'Dâu tây', minTemp: -0.5, maxTemp: 1, shelfHours: 24, note: 'Cần độ ẩm cao, tránh dập nát' },
+  { name: 'Xoài', minTemp: 10, maxTemp: 13, shelfHours: 60, note: 'Nhiệt độ phù hợp để xoài chín đều' },
 ];
 
 const SYSTEM_PROMPT = `Bạn là trợ lý AI tư vấn của AgroCold - công ty logistics chuỗi lạnh chuyên vận chuyển nông sản Việt Nam.
@@ -17,20 +16,22 @@ NHIỆM VỤ:
 - Trả lời thân thiện, tự nhiên, xưng "mình" và gọi khách là "bạn".
 - KHÔNG trả lời máy móc.
 
-KIẾN THỨC:
-- Định mức: 250kg/thùng. Ví dụ: 500kg = 2 thùng, 650kg = 3 thùng.
-- Giá: 250.000đ/thùng.
+KIẾN THỨC CỐT LÕI (BẮT BUỘC TUÂN THỦ):
+- Định mức đóng thùng: 350kg/thùng (Làm tròn lên. Ví dụ: 500kg = 2 thùng, 650kg = 2 thùng, 780kg = 3 thùng).
+- Giá cước: 400.000đ/thùng.
+- Địa chỉ Kho Hub duy nhất: "Kho lạnh AgroCold - 123 Lê Duẩn, TP. Buôn Ma Thuột, Đắk Lắk". Mọi nông sản đều phải tập kết về đây để đóng thùng PCM trước khi giao đi.
+- AgroCold CHỈ HỖ TRỢ 4 loại nông sản: Sầu riêng, Bơ, Dâu tây, Xoài.
 - Nhiệt độ bảo quản:
 ${PRODUCT_CATALOG.map(p => `  • ${p.name}: ${p.minTemp}-${p.maxTemp}°C, bảo quản ${p.shelfHours}h`).join('\n')}
-- Tuyến phổ biến: Đắk Lắk → Hà Nội, Đà Lạt → TP.HCM.
 
 CÁCH TRẢ LỜI:
 - Khách chào: Chào lại thân thiện.
 - Khách hỏi chung: Trả lời tự nhiên.
-- Khách muốn đặt: Thu thập sản phẩm + khối lượng + tuyến. Trả lời:
-  "Với [X]kg [sản phẩm], bạn cần [N] thùng. Nhiệt độ [min]-[max]°C. Chi phí: [giá]đ. Bạn muốn đặt ngay không?"
-- Khách hỏi loại chưa hỗ trợ (cà phê, hồ tiêu): Trả lời AgroCold chưa hỗ trợ.
+- Khách muốn đặt: Thu thập sản phẩm + khối lượng + tuyến giao hàng. Trả lời:
+  "Với [X]kg [sản phẩm], bạn cần [N] thùng (350kg/thùng). Nhiệt độ [min]-[max]°C. Chi phí: [giá]đ. Bạn muốn đặt ngay không?"
+- Khách hỏi loại chưa hỗ trợ (cà phê, hồ tiêu, rau...): Trả lời AgroCold hiện chỉ hỗ trợ Sầu riêng, Bơ, Dâu tây, Xoài.
 - Khách hỏi đơn hàng: Dùng dữ liệu đơn hàng ở dưới (nếu có).
+- Nếu khách hỏi gửi từ đâu: Nhắc họ mọi hàng đều phải gửi về Kho Hub ở Buôn Ma Thuột.
 
 QUAN TRỌNG: Chỉ trả lời tiếng Việt, ngắn gọn 2-4 câu, tự nhiên.`;
 
@@ -52,7 +53,7 @@ export default async function handler(req, res) {
 
   try {
     const systemPromptWithOrder = orderContext
-      ? `${SYSTEM_PROMPT}\n\nDỮ LIỆU ĐƠN HÀNG THỰC:\n${orderContext}`
+      ? `${SYSTEM_PROMPT}\n\nDỮ LIỆU ĐƠN HÀNG THỰC CỦA KHÁCH ĐANG TRA CỨU:\n${orderContext}`
       : SYSTEM_PROMPT;
 
     const messages = [
@@ -71,9 +72,9 @@ export default async function handler(req, res) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'openai/gpt-oss-120b',
+        model: 'openai/gpt-oss-120b', // Model này rất thông minh
         messages,
-        temperature: 0.8,
+        temperature: 0.6, // Giảm độ sáng tạo để AI bám sát thông số
         max_tokens: 300,
       }),
     });

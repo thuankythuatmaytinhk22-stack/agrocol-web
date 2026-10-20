@@ -1,11 +1,15 @@
-import { calcBoxes, calcCost, formatVnd, matchProduct, PRODUCT_CATALOG } from './coldChain';
+import { calcBoxes, calcCost, formatVnd, matchProduct } from './coldChain';
 import { supabase } from './supabaseClient';
 
 const KG_RE = /(\d+(?:[.,]\d+)?)\s*(kg|kí|ki|ký|kilogram)?/i;
 const TON_RE = /(\d+(?:[.,]\d+)?)\s*(tấn|tan)/i;
 const FROM_TO_RE = /từ\s+(.+?)\s+(?:đi|đến|tới|ra|vào)\s+(.+?)(?:[.,!?]|$)/i;
-const CITY_RE = /(đắk lắk|dak lak|đà lạt|da lat|lâm đồng|hà nội|ha noi|tp\.?hcm|hồ chí minh|sài gòn|bình điền|đà nẵng|cần thơ|nghệ an|huế|hải phòng|quảng ninh)/i;
+const CITY_RE = /(đắk lắk|dak lak|đà lạt|da lat|lâm đồng|hà nội|ha noi|tp\.?hcm|hồ chí minh|sài gòn|bình điền|đà nẵng|cần thơ|nghệ an|huế|hải phòng|quảng ninh|buôn ma thuột)/i;
 const PHONE_RE = /(0\d{9,10})/;
+
+// QUY CÁCH MỚI: 350kg/thùng, giá 400.000đ/thùng
+const PRICE_PER_BOX = 400000;
+const WEIGHT_PER_BOX = 350;
 
 function parseWeight(text) {
   const ton = text.match(TON_RE);
@@ -118,7 +122,7 @@ export function replyFromQuote(quote, missingHint) {
   const route = quote.pickup_address && quote.delivery_address
     ? ` Tuyến ${quote.pickup_address} → ${quote.delivery_address}.`
     : '';
-  return `Với ${quote.weight}kg ${quote.product.name.toLowerCase()}, bạn cần ${quote.boxes} thùng (250kg/thùng). Nhiệt độ khuyến nghị ${quote.product.minTemp}–${quote.product.maxTemp}°C.${route} Chi phí: ${formatVnd(quote.cost)}. Bạn muốn đặt ngay không?`;
+  return `Với ${quote.weight}kg ${quote.product.name.toLowerCase()}, bạn cần ${quote.boxes} thùng (350kg/thùng). Nhiệt độ khuyến nghị ${quote.product.minTemp}–${quote.product.maxTemp}°C.${route} Chi phí: ${formatVnd(quote.cost)}. Bạn muốn đặt ngay không?`;
 }
 
 export async function answerChat(userText, prevSlots = {}, chatHistory = []) {
