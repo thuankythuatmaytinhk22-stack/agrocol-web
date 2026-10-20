@@ -7,6 +7,9 @@ import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet'
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
+// Tọa độ Hub cố định
+const HUB_COORDS = { lat: 12.6662, lng: 108.0382 };
+
 // Fix Leaflet icon
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -31,7 +34,6 @@ export default function DispatchPage() {
   const [selectedDate, setSelectedDate] = useState(
     new Date().toISOString().split('T')[0]
   );
-  // State lưu trữ đường đi thực tế (OSRM) cho từng xe
   const [routePaths, setRoutePaths] = useState({});
   const [loadingRoutes, setLoadingRoutes] = useState(false);
 
@@ -40,6 +42,21 @@ export default function DispatchPage() {
   }, []);
 
   const fetchOrders = async () => {
+    // 1. Tự động UPDATE tất cả các đơn trong DB thành tọa độ Hub trước khi lấy dữ liệu
+    try {
+      await supabase
+        .from('orders')
+        .update({ 
+          pickup_lat: HUB_COORDS.lat, 
+          pickup_lng: HUB_COORDS.lng,
+          pickup_address: 'Kho lạnh AgroCold - 123 Lê Duẩn, TP. Buôn Ma Thuột, Đắk Lắk'
+        })
+        .not('pickup_lat', 'eq', HUB_COORDS.lat); // Chỉ cập nhật những đơn có tọa độ khác Hub
+    } catch (err) {
+      console.error('Lỗi tự động cập nhật địa chỉ Hub:', err);
+    }
+
+    // 2. Lấy dữ liệu mới nhất
     const { data } = await supabase
       .from('orders')
       .select('*')
@@ -48,7 +65,6 @@ export default function DispatchPage() {
     setLoading(false);
   };
 
-  // Hàm lấy đường đi thực tế từ OSRM
   const fetchRealRoutes = async (vehicles) => {
     setLoadingRoutes(true);
     const newRoutePaths = {};
@@ -63,13 +79,11 @@ export default function DispatchPage() {
           const data = await res.json();
           
           if (data.routes && data.routes[0]) {
-            // OSRM trả về [lng, lat], cần đảo thành [lat, lng] cho Leaflet
             const roadPath = data.routes[0].geometry.coordinates.map((c) => [c[1], c[0]]);
             newRoutePaths[vehicle.id] = roadPath;
           }
         } catch (err) {
           console.error(`Lỗi lấy đường đi cho ${vehicle.vehicleName}:`, err);
-          // Fallback: Nối thẳng nếu OSRM lỗi
           newRoutePaths[vehicle.id] = vehicle.path.map((p) => [p.lat, p.lng]);
         }
       })
@@ -102,7 +116,6 @@ export default function DispatchPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h2 className="text-2xl font-extrabold text-agro-dark flex items-center gap-2">
@@ -130,7 +143,6 @@ export default function DispatchPage() {
         </div>
       </div>
 
-      {/* Cảnh báo nhiệt độ */}
       {shippingAlerts.length > 0 && (
         <div className="space-y-3">
           <h3 className="font-bold text-agro-dark flex items-center gap-2">
@@ -151,10 +163,8 @@ export default function DispatchPage() {
         </div>
       )}
 
-      {/* Kết quả */}
       {plan && !plan.empty && (
         <div className="space-y-6">
-          {/* Tổng quan */}
           <div className="bg-agro-dark text-white rounded-2xl p-6 flex items-center justify-between">
             <div>
               <p className="text-sm text-white/70 font-medium">Tổng tiết kiệm so với FIFO</p>
@@ -166,7 +176,6 @@ export default function DispatchPage() {
             <Truck className="w-16 h-16 text-white/20" />
           </div>
 
-          {/* BẢN ĐỒ CHUNG CHO TẤT CẢ CÁC XE */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="p-4 border-b border-gray-100">
               <h3 className="font-bold text-agro-dark flex items-center gap-2">
@@ -185,7 +194,6 @@ export default function DispatchPage() {
                   url={`https://api.maptiler.com/maps/outdoor-v2/{z}/{x}/{y}.png?key=0kgv1m784H4kd86re01y`}
                 />
                 
-                {/* Vẽ đường đi cho từng xe */}
                 {plan.vehicles.map((vehicle) => {
                   const path = routePaths[vehicle.id] || vehicle.path.map(p => [p.lat, p.lng]);
                   return (
@@ -202,7 +210,6 @@ export default function DispatchPage() {
                   );
                 })}
 
-                {/* Vẽ Marker cho từng điểm */}
                 {plan.vehicles.map((vehicle) => 
                   vehicle.path.map((p, i) => (
                     <Marker 
@@ -224,7 +231,6 @@ export default function DispatchPage() {
             </div>
           </div>
 
-          {/* Danh sách chi tiết từng xe */}
           <div className="space-y-4">
             {plan.vehicles.map((vehicle) => (
               <div key={vehicle.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -285,7 +291,6 @@ export default function DispatchPage() {
         </div>
       )}
 
-      {/* Hướng dẫn */}
       {!plan && (
         <div className="bg-white rounded-2xl p-12 border border-gray-100 shadow-sm text-center">
           <Route className="w-16 h-16 text-gray-300 mx-auto mb-3" />

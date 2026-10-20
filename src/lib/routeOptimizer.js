@@ -1,32 +1,11 @@
 import { matchProduct } from './coldChain';
 
-export const KNOWN_PLACES = [
-  { keys: ['hub', 'buôn ma thuột', 'buon ma thuot', 'bmt'], name: 'Hub AgroCold Buôn Ma Thuột', lat: 12.6662, lng: 108.0382 },
-  { keys: ['đắk lắk', 'dak lak', 'đak lak', 'nhà vườn đắk'], name: 'Nhà vườn Đắk Lắk', lat: 12.7105, lng: 108.2378 },
-  { keys: ['lâm đồng', 'lam dong', 'đà lạt', 'da lat'], name: 'Nông trại Lâm Đồng', lat: 11.9404, lng: 108.4583 },
-  { keys: ['bình điền', 'binh dien'], name: 'Chợ Bình Điền, TP.HCM', lat: 10.721, lng: 106.611 },
-  { keys: ['hcm', 'tp.hcm', 'sài gòn', 'sai gon', 'hồ chí minh', 'ho chi minh', 'thủ đức'], name: 'Hub giao TP.HCM', lat: 10.7769, lng: 106.7009 },
-  { keys: ['hà nội', 'ha noi', 'hanoi'], name: 'Điểm giao Hà Nội', lat: 21.0278, lng: 105.8342 },
-  { keys: ['đà nẵng', 'da nang'], name: 'Điểm giao Đà Nẵng', lat: 16.0544, lng: 108.2022 },
-  { keys: ['cần thơ', 'can tho'], name: 'Chợ đầu mối Cần Thơ', lat: 10.0452, lng: 105.7469 },
-  { keys: ['nghệ an', 'nghe an', 'vinh'], name: 'Điểm giao Nghệ An', lat: 18.6796, lng: 105.6813 },
-];
-
-const HUB = KNOWN_PLACES[0];
+const HUB = { 
+  name: 'Kho lạnh AgroCold - 123 Lê Duẩn, TP. Buôn Ma Thuột', 
+  lat: 12.6662, 
+  lng: 108.0382 
+};
 const AVG_KMH = 42;
-
-export function geocodeAddress(address = '') {
-  const raw = address.toLowerCase();
-  const found = KNOWN_PLACES.find((p) => p.keys.some((k) => raw.includes(k)));
-  if (found) return { ...found, matched: true };
-  const fallback = {
-    name: address || 'Điểm chưa định vị',
-    lat: 12.6662 + ((address.length % 9) - 4) * 0.35,
-    lng: 108.0382 + ((address.length % 7) - 3) * 0.4,
-    matched: false,
-  };
-  return fallback;
-}
 
 function haversineKm(a, b) {
   const R = 6371;
@@ -48,12 +27,17 @@ function routeStats(points) {
 function buildStops(orders) {
   return orders.flatMap((order) => {
     const product = matchProduct(order.product_type);
-    const pickup = (order.pickup_lat && order.pickup_lng)
-      ? { name: order.pickup_address || 'Điểm lấy hàng', lat: order.pickup_lat, lng: order.pickup_lng }
-      : geocodeAddress(order.pickup_address);
+    
+    // BỎ QUA ĐỊA CHỈ PICKUP CŨ, LUÔN DÙNG HUB CỐ ĐỊNH
+    const pickup = { 
+      name: HUB.name, 
+      lat: HUB.lat, 
+      lng: HUB.lng 
+    };
+    
     const delivery = (order.delivery_lat && order.delivery_lng)
       ? { name: order.delivery_address || 'Điểm giao hàng', lat: order.delivery_lat, lng: order.delivery_lng }
-      : geocodeAddress(order.delivery_address);
+      : { name: order.delivery_address || 'Chưa xác định', lat: HUB.lat + 0.1, lng: HUB.lng + 0.1 }; // Fallback nếu thiếu tọa độ
 
     return [
       { id: `${order.id}-p`, order, kind: 'pickup', product, label: pickup.name, lat: pickup.lat, lng: pickup.lng, shelfHours: product.shelfHours },
@@ -62,7 +46,7 @@ function buildStops(orders) {
   });
 }
 
-// Thuật toán Greedy đơn giản (giữ nguyên)
+// Thuật toán Greedy
 function greedyRoute(stops) {
   const picked = new Set();
   const remaining = [...stops];
@@ -156,67 +140,43 @@ export function optimizeRoutes(orders = [], filterDate = null) {
     };
   }
 
-  // BƯỚC 1: Gom nhóm các đơn hàng theo điểm lấy (Pickup Address)
-  // Những đơn nào cùng điểm lấy hàng thì gom vào 1 nhóm (1 xe)
-  const groupMap = {};
-  active.forEach((order) => {
-    // Tạo key từ tọa độ hoặc địa chỉ pickup để gom nhóm
-    const key = order.pickup_address || 'unknown';
-    if (!groupMap[key]) groupMap[key] = [];
-    groupMap[key].push(order);
-  });
+  // VÌ TẤT CẢ ĐỀU XUẤT PHÁT TỪ HUB, GOM CHUNG VÀO 1 NHÓM XE
+  // (Nếu muốn chia nhiều xe, có thể chia theo số lượng đơn, nhưng hiện tại gom chung)
+  const groupOrders = active; 
 
-  const vehicles = [];
-  let totalSavedKm = 0;
-  let totalSavedMinutes = 0;
+  const stops = buildStops(groupOrders);
+  const oldPath = fifoRoute(stops);
+  const greedyPath = greedyRoute(stops);
+  const newPath = twoOptImprove(greedyPath);
 
-  // BƯỚC 2: Mỗi nhóm đơn hàng sẽ được tối ưu riêng
-  Object.values(groupMap).forEach((groupOrders, index) => {
-    const stops = buildStops(groupOrders);
-    const oldPath = fifoRoute(stops);
-    const greedyPath = greedyRoute(stops);
-    const newPath = twoOptImprove(greedyPath);
+  const oldStats = routeStats(oldPath);
+  const newStats = routeStats(newPath);
 
-    const oldStats = routeStats(oldPath);
-    const newStats = routeStats(newPath);
+  const savedKm = Math.max(0, oldStats.km - newStats.km);
+  const savedMinutes = Math.max(0, oldStats.minutes - newStats.minutes);
 
-    const savedKm = Math.max(0, oldStats.km - newStats.km);
-    const savedMinutes = Math.max(0, oldStats.minutes - newStats.minutes);
-
-    totalSavedKm += savedKm;
-    totalSavedMinutes += savedMinutes;
-
-    vehicles.push({
-      id: `vehicle-${index + 1}`,
-      vehicleName: `Xe ${index + 1}`, // Tên tạm, sẽ gán biển số sau
-      orders: groupOrders,
-      path: newPath,
-      stats: newStats,
-      savedKm,
-      savedMinutes,
-      // Màu cho từng tuyến đường
-      color: [
-        '#0F4C3A', // Xanh đậm
-        '#FF6B9D', // Hồng
-        '#4CAF50', // Xanh lá
-        '#F4C542', // Vàng
-        '#9C27B0', // Tím
-        '#FF5722', // Cam
-      ][index % 6],
-    });
-  });
+  const vehicles = [{
+    id: `vehicle-1`,
+    vehicleName: `Xe Tải 1`,
+    orders: groupOrders,
+    path: newPath,
+    stats: newStats,
+    savedKm,
+    savedMinutes,
+    color: '#0F4C3A', // Màu xanh đậm cho Hub
+  }];
 
   return {
     empty: false,
     count: active.length,
     vehicles: vehicles,
-    totalSavedKm: Number(totalSavedKm.toFixed(1)),
-    totalSavedMinutes: totalSavedMinutes,
+    totalSavedKm: Number(savedKm.toFixed(1)),
+    totalSavedMinutes: savedMinutes,
   };
 }
 
 export function stopKindLabel(kind) {
-  if (kind === 'hub') return 'Kho';
-  if (kind === 'pickup') return 'Lấy hàng';
+  if (kind === 'hub') return 'Kho Hub';
+  if (kind === 'pickup') return 'Lấy hàng tại Hub';
   return 'Giao hàng';
 }

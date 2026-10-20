@@ -1,6 +1,10 @@
 import { supabase } from '../lib/supabaseClient';
 import { calcBoxes, matchProduct } from '../lib/coldChain';
 
+// Tọa độ và địa chỉ Hub cố định
+export const HUB_ADDRESS = 'Kho lạnh AgroCold - 123 Lê Duẩn, TP. Buôn Ma Thuột, Đắk Lắk';
+export const HUB_COORDS = { lat: 12.6662, lng: 108.0382 };
+
 export const createOrder = async (orderData) => {
   const weight = parseFloat(orderData.weight);
   const boxes = calcBoxes(weight);
@@ -20,8 +24,10 @@ export const createOrder = async (orderData) => {
         status: 'pending',
         temperature: product.minTemp,
         pickup_time: orderData.pickup_time || null,
-        pickup_lat: orderData.pickup_lat || null,
-        pickup_lng: orderData.pickup_lng || null,
+        // GHI ĐÈ CỨNG TỌA ĐỘ HUB
+        pickup_address: HUB_ADDRESS,
+        pickup_lat: HUB_COORDS.lat,
+        pickup_lng: HUB_COORDS.lng,
         delivery_lat: orderData.delivery_lat || null,
         delivery_lng: orderData.delivery_lng || null,
       },
