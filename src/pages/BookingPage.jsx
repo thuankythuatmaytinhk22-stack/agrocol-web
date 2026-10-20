@@ -1,13 +1,11 @@
 import { useState } from 'react';
-import { createOrder } from '../services/orderService';
-import { CheckCircle, MapPin, AlertCircle } from 'lucide-react';
+import { createOrder, cancelOrder } from '../services/orderService';
+import { CheckCircle, MapPin, AlertCircle, Phone, X } from 'lucide-react';
 import LocationPicker from '../components/map/LocationPicker';
-// import { calcBoxes, calcCost, matchProduct } from '../lib/coldChain'; // Bỏ qua hàm tính toán cũ để tự viết lại
 
-const PRICE_PER_BOX = 400000; // Giá mới: 400.000đ / thùng
-const WEIGHT_PER_BOX = 350;   // Quy cách mới: 350kg / thùng
+const PRICE_PER_BOX = 400000; 
+const WEIGHT_PER_BOX = 350;   
 
-// Địa chỉ Hub cố định
 const HUB_ADDRESS = 'Kho lạnh AgroCold - 123 Lê Duẩn, TP. Buôn Ma Thuột, Đắk Lắk';
 const HUB_COORDS = { lat: 12.6662, lng: 108.0382 };
 
@@ -19,22 +17,19 @@ const EMPTY_FORM = {
   send_date: '',
   pickup_time: '',
   delivery_address: '',
-  hub_address: HUB_ADDRESS, // Thêm trường này
+  hub_address: HUB_ADDRESS,
 };
 
-// Hàm tính số thùng (Làm tròn lên)
 const customCalcBoxes = (weight) => {
   const w = parseFloat(weight) || 0;
   if (w <= 0) return 0;
   return Math.ceil(w / WEIGHT_PER_BOX);
 };
 
-// Hàm tính tiền
 const customCalcCost = (boxes) => {
   return boxes * PRICE_PER_BOX;
 };
 
-// Hàm lấy thông tin nhiệt độ (Đề phòng file coldChain bị lỗi, tôi copy tạm logic vào đây)
 const getProductInfo = (type) => {
   const products = {
     'Sầu riêng': { minTemp: 13, maxTemp: 15, name: 'Sầu riêng', shelfHours: 48, note: 'Bảo quản lạnh sâu, tránh sốc nhiệt.' },
@@ -45,49 +40,25 @@ const getProductInfo = (type) => {
   return products[type] || { minTemp: '--', maxTemp: '--', name: 'Chưa xác định', shelfHours: 0, note: 'Chọn loại nông sản để xem cấu hình.' };
 };
 
-function takeBookingDraft() {
-  try {
-    const raw = sessionStorage.getItem('agrocold_booking_draft');
-    if (!raw) return null;
-    sessionStorage.removeItem('agrocold_booking_draft');
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
 export default function BookingPage() {
-  const [boot] = useState(() => {
-    const draft = takeBookingDraft();
-    if (!draft) return { formData: EMPTY_FORM, boxes: 0, cost: 0 };
-    const formData = {
-      ...EMPTY_FORM,
-      customer_name: draft.customer_name || '',
-      customer_phone: draft.customer_phone || '',
-      product_type: draft.product_type || '',
-      weight: draft.weight || '',
-      delivery_address: draft.delivery_address || '',
-    };
-    const boxes = customCalcBoxes(draft.weight);
-    return { formData, boxes, cost: customCalcCost(boxes) };
-  });
-
-  const [formData, setFormData] = useState(boot.formData);
-  const [boxes, setBoxes] = useState(boot.boxes);
-  const [cost, setCost] = useState(boot.cost);
-  const [successBoxes, setSuccessBoxes] = useState(0);
-  const [isSuccess, setIsSuccess] = useState(false);
+  const [formData, setFormData] = useState(EMPTY_FORM);
+  const [boxes, setBoxes] = useState(0);
+  const [cost, setCost] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState(''); // State báo lỗi thời gian
-
+  const [errorMsg, setErrorMsg] = useState('');
   const [deliveryCoords, setDeliveryCoords] = useState({ lat: null, lng: null });
 
+  // State cho thanh toán cọc
+  const [showQR, setShowQR] = useState(false);
+  const [currentOrderData, setCurrentOrderData] = useState(null);
+
   const product = getProductInfo(formData.product_type);
+  const depositAmount = cost * 0.5; // 50%
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
-    setErrorMsg(''); // Xóa lỗi khi người dùng thay đổi input
+    setErrorMsg('');
 
     if (name === 'weight') {
       const calculatedBoxes = customCalcBoxes(value);
@@ -99,17 +70,14 @@ export default function BookingPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // 1. Kiểm tra thời gian quá khứ
     if (formData.send_date && formData.pickup_time) {
       const selectedDateTime = new Date(`${formData.send_date}T${formData.pickup_time}`);
-      const now = new Date();
-      if (selectedDateTime < now) {
+      if (selectedDateTime < new Date()) {
         setErrorMsg('Thời gian gửi hàng không hợp lệ. Vui lòng chọn thời gian trong tương lai!');
         return;
       }
     }
 
-    // 2. Kiểm tra điểm giao hàng
     if (!deliveryCoords.lat) {
       alert('Bạn cần chọn vị trí giao hàng trên bản đồ!');
       return;
@@ -117,28 +85,24 @@ export default function BookingPage() {
 
     setLoading(true);
     try {
-      const currentBoxes = boxes;
-      
-      // Gọi API tạo đơn (Lưu ý: bạn cần đảm bảo hàm createOrder có nhận hub_address)
-      await createOrder({
+      const order = await createOrder({
         ...formData,
-        pickup_lat: HUB_COORDS.lat, // Gán cứng tọa độ Hub
+        pickup_lat: HUB_COORDS.lat,
         pickup_lng: HUB_COORDS.lng,
         delivery_lat: deliveryCoords.lat,
         delivery_lng: deliveryCoords.lng,
-        boxes: currentBoxes, // Ghi đè số thùng tính toán được
-      });
+        boxes: boxes,
+      }, cost, depositAmount);
 
-      setSuccessBoxes(currentBoxes);
-      setIsSuccess(true);
+      // Lưu data đơn hàng hiện tại và mở Popup QR
+      setCurrentOrderData(order);
+      setShowQR(true);
+      
+      // Reset form
       setFormData(EMPTY_FORM);
       setDeliveryCoords({ lat: null, lng: null });
       setBoxes(0);
       setCost(0);
-      setTimeout(() => {
-        setIsSuccess(false);
-        setSuccessBoxes(0);
-      }, 5000);
     } catch (err) {
       alert('Lỗi: ' + err.message);
     } finally {
@@ -146,15 +110,30 @@ export default function BookingPage() {
     }
   };
 
+  // Xử lý khi khách bấm "Đã hoàn thành cọc"
+  const handleConfirmDeposit = () => {
+    setShowQR(false);
+    alert('Cảm ơn bạn! Vui lòng chờ Admin xác nhận. Đơn hàng của bạn đang được xử lý.');
+  };
+
+  // Xử lý khi khách bấm "Hủy đặt thùng"
+  const handleCancelOrder = async () => {
+    if (!window.confirm('Bạn có chắc muốn hủy đơn hàng này? Thao tác không thể hoàn tác.')) return;
+    try {
+      await cancelOrder(currentOrderData.id);
+      alert('Đã hủy đơn hàng thành công.');
+      setShowQR(false);
+      setCurrentOrderData(null);
+    } catch (err) {
+      alert('Lỗi hủy đơn: ' + err.message);
+    }
+  };
+
   return (
-    <div className="bg-agro-bg min-h-screen py-12 font-sans">
+    <div className="bg-agro-bg min-h-screen py-12 font-sans relative">
       <div className="max-w-6xl mx-auto px-4">
-        <h1 className="text-3xl font-bold text-agro-dark mb-2">
-          BẮT ĐẦU CHUYẾN ĐI
-        </h1>
-        <h2 className="text-4xl font-extrabold text-agro-dark mb-8">
-          Đặt thùng lạnh
-        </h2>
+        <h1 className="text-3xl font-bold text-agro-dark mb-2">BẮT ĐẦU CHUYẾN ĐI</h1>
+        <h2 className="text-4xl font-extrabold text-agro-dark mb-8">Đặt thùng lạnh</h2>
 
         <div className="grid md:grid-cols-3 gap-8">
           <div className="md:col-span-2 bg-white rounded-2xl p-8 shadow-sm border border-gray-100">
@@ -162,46 +141,20 @@ export default function BookingPage() {
               {/* Thông tin khách hàng */}
               <div className="grid md:grid-cols-2 gap-6">
                 <div>
-                  <label className="block text-sm font-semibold mb-2 text-agro-dark">
-                    Tên người đặt
-                  </label>
-                  <input
-                    name="customer_name"
-                    value={formData.customer_name}
-                    onChange={handleChange}
-                    required
-                    className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-agro-dark outline-none text-agro-dark font-medium"
-                    placeholder="VD: Nguyễn Văn A"
-                  />
+                  <label className="block text-sm font-semibold mb-2 text-agro-dark">Tên người đặt</label>
+                  <input name="customer_name" value={formData.customer_name} onChange={handleChange} required className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-agro-dark outline-none text-agro-dark font-medium" placeholder="VD: Nguyễn Văn A" />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold mb-2 text-agro-dark">
-                    Số điện thoại
-                  </label>
-                  <input
-                    name="customer_phone"
-                    value={formData.customer_phone}
-                    onChange={handleChange}
-                    required
-                    className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-agro-dark outline-none text-agro-dark font-medium"
-                    placeholder="VD: 0905xxxxxx"
-                  />
+                  <label className="block text-sm font-semibold mb-2 text-agro-dark">Số điện thoại</label>
+                  <input name="customer_phone" value={formData.customer_phone} onChange={handleChange} required className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-agro-dark outline-none text-agro-dark font-medium" placeholder="VD: 0905xxxxxx" />
                 </div>
               </div>
 
               {/* Thông tin hàng hóa */}
               <div className="grid md:grid-cols-4 gap-6">
                 <div>
-                  <label className="block text-sm font-semibold mb-2 text-agro-dark">
-                    Loại nông sản
-                  </label>
-                  <select
-                    name="product_type"
-                    value={formData.product_type}
-                    onChange={handleChange}
-                    required
-                    className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-agro-dark outline-none text-agro-dark font-medium bg-white"
-                  >
+                  <label className="block text-sm font-semibold mb-2 text-agro-dark">Loại nông sản</label>
+                  <select name="product_type" value={formData.product_type} onChange={handleChange} required className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-agro-dark outline-none text-agro-dark font-medium bg-white">
                     <option value="">-- Chọn loại nông sản --</option>
                     <option value="Sầu riêng">🍈 Sầu riêng</option>
                     <option value="Dâu tây">🍓 Dâu tây</option>
@@ -210,47 +163,16 @@ export default function BookingPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold mb-2 text-agro-dark">
-                    Ngày gửi
-                  </label>
-                  <input
-                    type="date"
-                    name="send_date"
-                    value={formData.send_date}
-                    onChange={handleChange}
-                    required
-                    className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-agro-dark outline-none text-agro-dark font-medium"
-                  />
+                  <label className="block text-sm font-semibold mb-2 text-agro-dark">Ngày gửi</label>
+                  <input type="date" name="send_date" value={formData.send_date} onChange={handleChange} required className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-agro-dark outline-none text-agro-dark font-medium" />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold mb-2 text-agro-dark">
-                    Giờ đặt
-                  </label>
-                  <input
-                    type="time"
-                    name="pickup_time"
-                    value={formData.pickup_time}
-                    onChange={handleChange}
-                    required
-                    className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-agro-dark outline-none text-agro-dark font-medium"
-                  />
-                  <p className="text-xs text-gray-400 mt-1">
-                    Giờ xe đến lấy hàng
-                  </p>
+                  <label className="block text-sm font-semibold mb-2 text-agro-dark">Giờ đặt</label>
+                  <input type="time" name="pickup_time" value={formData.pickup_time} onChange={handleChange} required className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-agro-dark outline-none text-agro-dark font-medium" />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold mb-2 text-agro-dark">
-                    Khối lượng (kg)
-                  </label>
-                  <input
-                    type="number"
-                    name="weight"
-                    value={formData.weight}
-                    onChange={handleChange}
-                    required
-                    className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-agro-dark outline-none text-agro-dark font-medium"
-                    placeholder="VD: 700"
-                  />
+                  <label className="block text-sm font-semibold mb-2 text-agro-dark">Khối lượng (kg)</label>
+                  <input type="number" name="weight" value={formData.weight} onChange={handleChange} required className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-agro-dark outline-none text-agro-dark font-medium" placeholder="VD: 700" />
                 </div>
               </div>
 
@@ -270,130 +192,110 @@ export default function BookingPage() {
 
               {/* Điểm giao hàng */}
               <div className="border-t border-gray-100 pt-6">
-                <LocationPicker
-                  label="🎯 Điểm giao hàng"
-                  value={deliveryCoords}
-                  onChange={(coords) => {
+                <LocationPicker label="🎯 Điểm giao hàng" value={deliveryCoords} onChange={(coords) => {
                     setDeliveryCoords(coords);
-                    if (coords.address) {
-                      setFormData((prev) => ({
-                        ...prev,
-                        delivery_address: coords.address,
-                      }));
-                    }
-                  }}
-                />
+                    if (coords.address) setFormData((prev) => ({ ...prev, delivery_address: coords.address }));
+                  }} />
               </div>
 
-              {/* Thông báo lỗi (nếu có) */}
               {errorMsg && (
                 <div className="bg-red-50 text-red-600 p-4 rounded-xl flex items-center gap-2 font-medium">
                   <AlertCircle className="w-5 h-5" /> {errorMsg}
                 </div>
               )}
 
-              {/* Nút submit */}
               <div className="border-t border-gray-100 pt-6">
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full bg-agro-yellow hover:bg-yellow-500 text-agro-dark font-bold text-lg py-4 rounded-xl transition-colors disabled:opacity-50"
-                >
+                <button type="submit" disabled={loading} className="w-full bg-agro-yellow hover:bg-yellow-500 text-agro-dark font-bold text-lg py-4 rounded-xl transition-colors disabled:opacity-50">
                   {loading ? 'ĐANG XỬ LÝ...' : 'XÁC NHẬN ĐẶT THÙNG'}
                 </button>
               </div>
             </form>
-
-            {isSuccess && (
-              <div className="mt-4 bg-green-100 text-agro-dark p-4 rounded-xl flex items-center gap-3 font-semibold">
-                <CheckCircle className="w-6 h-6" />
-                <span>
-                  Đặt thùng thành công! Đã ước tính {successBoxes} thùng cho
-                  chuyến hàng.
-                </span>
-              </div>
-            )}
           </div>
 
           {/* Sidebar tóm tắt */}
           <div className="space-y-6">
             <div className="bg-agro-dark text-white rounded-2xl p-6 shadow-md">
-              <p className="text-sm opacity-80 mb-1 font-medium">
-                Chi phí dự kiến
-              </p>
-              <h3 className="text-4xl font-extrabold text-agro-yellow">
-                {cost.toLocaleString('vi-VN')}đ
-              </h3>
+              <p className="text-sm opacity-80 mb-1 font-medium">Chi phí dự kiến</p>
+              <h3 className="text-4xl font-extrabold text-agro-yellow">{cost.toLocaleString('vi-VN')}đ</h3>
               <hr className="my-4 border-white/20" />
               <p className="text-sm opacity-80 font-medium">Số thùng ước tính</p>
-              <p className="text-2xl font-bold text-white">
-                {boxes > 0 ? `${boxes} thùng` : 'Chưa xác định'}
-              </p>
-              <p className="text-xs opacity-60 mt-2 italic">
-                * Quy cách: {WEIGHT_PER_BOX}kg / thùng. Làm tròn lên.
-              </p>
+              <p className="text-2xl font-bold text-white">{boxes > 0 ? `${boxes} thùng` : 'Chưa xác định'}</p>
+              <p className="text-xs opacity-60 mt-2 italic">* Quy cách: {WEIGHT_PER_BOX}kg / thùng. Làm tròn lên.</p>
             </div>
 
             {/* Thẻ nhiệt độ hiện tại */}
-            <div
-              className={`rounded-2xl p-6 border transition-all ${
-                formData.product_type
-                  ? 'bg-green-50 border-green-200 shadow-sm'
-                  : 'bg-green-50/50 border-green-100'
-              }`}
-            >
+            <div className={`rounded-2xl p-6 border transition-all ${formData.product_type ? 'bg-green-50 border-green-200 shadow-sm' : 'bg-green-50/50 border-green-100'}`}>
               <div className="flex items-center gap-2 text-agro-dark font-bold mb-2">
                 <span className="text-xl">🌡️</span>
-                <span>
-                  Nhiệt độ mục tiêu:{' '}
-                  <span className="text-agro-dark text-lg">
-                    {product.minTemp}–{product.maxTemp}°C
-                  </span>
-                </span>
+                <span>Nhiệt độ mục tiêu: <span className="text-agro-dark text-lg">{product.minTemp}–{product.maxTemp}°C</span></span>
               </div>
               {formData.product_type ? (
                 <>
-                  <p className="text-xs text-agro-dark font-bold mb-1">
-                    {product.name} · Bảo quản {product.shelfHours}h
-                  </p>
-                  <p className="text-sm text-gray-600 font-medium">
-                    {product.note}
-                  </p>
+                  <p className="text-xs text-agro-dark font-bold mb-1">{product.name} · Bảo quản {product.shelfHours}h</p>
+                  <p className="text-sm text-gray-600 font-medium">{product.note}</p>
                 </>
               ) : (
-                <p className="text-sm text-gray-500 font-medium">
-                  Chọn loại nông sản để xem cấu hình làm lạnh phù hợp
-                </p>
+                <p className="text-sm text-gray-500 font-medium">Chọn loại nông sản để xem cấu hình làm lạnh phù hợp</p>
               )}
-            </div>
-
-            {/* BẢNG TRA CỨU NHIỆT ĐỘ NÔNG SẢN */}
-            <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
-              <h3 className="font-bold text-agro-dark mb-4 flex items-center gap-2">
-                📋 Bảng nhiệt độ bảo quản
-              </h3>
-              <div className="space-y-3 text-sm">
-                <div className="flex justify-between items-center py-2 border-b border-gray-50">
-                  <span className="font-medium text-gray-700">🍈 Sầu riêng</span>
-                  <span className="font-bold text-green-700 bg-green-50 px-2 py-1 rounded">13 – 15°C</span>
-                </div>
-                <div className="flex justify-between items-center py-2 border-b border-gray-50">
-                  <span className="font-medium text-gray-700">🍓 Dâu tây</span>
-                  <span className="font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded">-0.5 – 1°C</span>
-                </div>
-                <div className="flex justify-between items-center py-2 border-b border-gray-50">
-                  <span className="font-medium text-gray-700">🥑 Bơ</span>
-                  <span className="font-bold text-yellow-700 bg-yellow-50 px-2 py-1 rounded">4 – 13°C</span>
-                </div>
-                <div className="flex justify-between items-center py-2">
-                  <span className="font-medium text-gray-700">🥭 Xoài</span>
-                  <span className="font-bold text-orange-700 bg-orange-50 px-2 py-1 rounded">10 – 13°C</span>
-                </div>
-              </div>
             </div>
           </div>
         </div>
       </div>
+
+      {/* MODAL THANH TOÁN CỌC (HIỂN THỊ SAU KHI ĐẶT HÀNG) */}
+      {showQR && currentOrderData && (
+        <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden relative">
+            
+            {/* Header */}
+            <div className="bg-agro-dark text-white p-5 flex justify-between items-center">
+              <h3 className="font-bold text-lg flex items-center gap-2">
+                <CheckCircle className="w-5 h-5 text-agro-yellow" /> Đặt thùng thành công!
+              </h3>
+            </div>
+
+            <div className="p-6 space-y-5">
+              {/* Thông báo Hotline */}
+              <div className="bg-red-50 text-red-600 p-4 rounded-xl text-sm font-bold flex items-start gap-3 border border-red-100">
+                <Phone className="w-5 h-5 flex-shrink-0 mt-0.5 animate-pulse" />
+                <p>Vui lòng gọi HOTLINE <span className="text-lg">1900 1234</span> để xác nhận đơn hàng trước khi tiến hành chuyển khoản cọc!</p>
+              </div>
+
+              {/* Thông tin tiền cọc */}
+              <div className="text-center bg-gray-50 rounded-xl p-4 border border-gray-100">
+                <p className="text-sm text-gray-500 font-semibold mb-1">Số tiền cần cọc (50%)</p>
+                <p className="text-4xl font-extrabold text-agro-yellow">{depositAmount.toLocaleString('vi-VN')}đ</p>
+                <p className="text-xs text-gray-400 mt-1">Tổng đơn: {currentOrderData.total_price?.toLocaleString('vi-VN')}đ</p>
+              </div>
+
+              {/* Mã QR */}
+              <div className="flex flex-col items-center">
+                <p className="text-sm font-bold text-gray-700 mb-2">Quét mã QR để chuyển khoản</p>
+                <div className="w-48 h-48 bg-white border-2 border-dashed border-gray-300 rounded-xl flex items-center justify-center overflow-hidden">
+                  {/* Thay src bằng tên file ảnh bạn đã up lên public, VD: /qr-code.png */}
+                  <img 
+                    src="/qr-code.png" 
+                    alt="Mã QR Ngân hàng" 
+                    className="w-full h-full object-contain p-2" 
+                    onError={(e) => { e.target.src = 'https://via.placeholder.com/200x200?text=Anh+QR+Code'; }}
+                  />
+                </div>
+                <p className="text-xs text-gray-500 mt-2">Nội dung chuyển khoản: <strong className="text-agro-dark">{currentOrderData.order_code}</strong></p>
+              </div>
+            </div>
+
+            {/* Nút hành động */}
+            <div className="p-5 border-t border-gray-100 bg-gray-50 flex gap-3">
+              <button onClick={handleCancelOrder} className="flex-1 border border-gray-300 hover:bg-white text-gray-700 font-bold py-3 rounded-xl">
+                Hủy đặt thùng
+              </button>
+              <button onClick={handleConfirmDeposit} className="flex-1 bg-agro-yellow hover:bg-yellow-500 text-agro-dark font-bold py-3 rounded-xl">
+                Đã hoàn thành cọc
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

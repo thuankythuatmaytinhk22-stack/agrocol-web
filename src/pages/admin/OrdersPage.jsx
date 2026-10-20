@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { getAllVehicles } from '../../services/vehicleService';
 import { getAllDrivers } from '../../services/driverService';
+import { updateDepositStatus, deleteOrder } from '../../services/orderService';
 import {
   Package,
   Search,
@@ -9,6 +10,8 @@ import {
   Users,
   X,
   CheckCircle,
+  Trash2,
+  AlertCircle
 } from 'lucide-react';
 
 export default function OrdersPage() {
@@ -20,7 +23,6 @@ export default function OrdersPage() {
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
 
-  // Modal
   const [assignModal, setAssignModal] = useState(null);
   const [assignList, setAssignList] = useState([]);
   const [assigning, setAssigning] = useState(false);
@@ -37,11 +39,9 @@ export default function OrdersPage() {
         .order('created_at', { ascending: false });
       if (orderData) setOrders(orderData);
 
-      // CHỈ LẤY XE VẬN CHUYỂN
       const vData = await getAllVehicles();
       setVehicles(vData.filter(v => v.vehicle_type !== 'pickup'));
 
-      // CHỈ LẤY TX VẬN CHUYỂN
       const dData = await getAllDrivers();
       setDrivers(dData.filter(d => d.driver_type !== 'pickup'));
 
@@ -62,42 +62,47 @@ export default function OrdersPage() {
     }
   };
 
-  // HÀM CẬP NHẬT TRẠNG THÁI (TỰ ĐỘNG GIẢI PHÓNG XE/TX)
+  const handleDepositChange = async (orderId, status) => {
+    try {
+      await updateDepositStatus(orderId, status);
+      fetchData();
+    } catch (err) {
+      alert('Lỗi cập nhật cọc: ' + err.message);
+    }
+  };
+
+  const handleDeleteOrder = async (orderId) => {
+    if (!window.confirm('Bạn có chắc chắn muốn xóa đơn hàng này? Hành động này không thể hoàn tác!')) return;
+    try {
+      await deleteOrder(orderId);
+      alert('Đã xóa đơn hàng!');
+      fetchData();
+    } catch (err) {
+      alert('Lỗi xóa đơn: ' + err.message);
+    }
+  };
+
   const updateOrderStatus = async (orderId, newStatus) => {
     try {
-      // 1. Cập nhật đơn hàng
       const { error } = await supabase.from('orders').update({ status: newStatus }).eq('id', orderId);
       if (error) throw error;
 
-      // 2. Nếu là 'delivered' hoặc 'cancelled' -> Giải phóng xe và tài xế
       if (newStatus === 'delivered' || newStatus === 'cancelled') {
         const orderAssigns = assignments[orderId] || [];
-        
         for (const a of orderAssigns) {
-          // Trả xe về Rảnh (idle)
           await supabase.from('vehicles').update({
-            status: 'idle',
-            current_order_ids: null,
-            current_driver_id: null,
-            current_route: null,
-            departed_at: null,
-            estimated_return_at: null,
+            status: 'idle', current_order_ids: null, current_driver_id: null, current_route: null, departed_at: null, estimated_return_at: null,
           }).eq('id', a.vehicle_id);
 
-          // Trả tài xế về Sẵn sàng (available)
           await supabase.from('drivers').update({
-            status: 'available',
-            current_vehicle_id: null,
+            status: 'available', current_vehicle_id: null,
           }).eq('id', a.driver_id);
         }
-
-        // Đánh dấu phân công đã hoàn thành/hủy
         await supabase.from('order_assignments').update({
           status: newStatus === 'delivered' ? 'delivered' : 'cancelled',
           completed_at: newStatus === 'delivered' ? new Date().toISOString() : null,
         }).eq('order_id', orderId);
       }
-
       fetchData();
     } catch (err) {
       alert('Lỗi: ' + err.message);
@@ -149,35 +154,22 @@ export default function OrdersPage() {
     setAssigning(true);
     try {
       await supabase.from('order_assignments').delete().eq('order_id', assignModal.id);
-
       const inserts = assignList.map((a) => ({
-        order_id: assignModal.id,
-        vehicle_id: a.vehicleId,
-        driver_id: a.driverId,
-        boxes_assigned: a.boxes,
-        status: 'assigned',
+        order_id: assignModal.id, vehicle_id: a.vehicleId, driver_id: a.driverId, boxes_assigned: a.boxes, status: 'assigned',
       }));
       await supabase.from('order_assignments').insert(inserts);
 
       await supabase.from('orders').update({
-        status: 'shipping',
-        vehicle_id: assignList[0].vehicleId,
-        driver_id: assignList[0].driverId,
+        status: 'shipping', vehicle_id: assignList[0].vehicleId, driver_id: assignList[0].driverId,
       }).eq('id', assignModal.id);
 
       for (const a of assignList) {
         await supabase.from('vehicles').update({
-          status: 'in_transit',
-          current_order_ids: [assignModal.id],
-          current_driver_id: a.driverId,
-          current_route: `${assignModal.pickup_address} → ${assignModal.delivery_address}`,
-          departed_at: new Date().toISOString(),
-          estimated_return_at: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString(),
+          status: 'in_transit', current_order_ids: [assignModal.id], current_driver_id: a.driverId, current_route: `${assignModal.pickup_address} → ${assignModal.delivery_address}`, departed_at: new Date().toISOString(), estimated_return_at: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString(),
         }).eq('id', a.vehicleId);
 
         await supabase.from('drivers').update({
-          status: 'on_duty',
-          current_vehicle_id: a.vehicleId,
+          status: 'on_duty', current_vehicle_id: a.vehicleId,
         }).eq('id', a.driverId);
       }
 
@@ -279,7 +271,7 @@ export default function OrdersPage() {
 
       {/* Table */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-x-auto">
-        <table className="w-full text-left min-w-[1100px]">
+        <table className="w-full text-left min-w-[1300px]">
           <thead className="bg-agro-dark text-white">
             <tr>
               <th className="px-4 py-4 text-xs font-bold">Mã đơn</th>
@@ -290,13 +282,14 @@ export default function OrdersPage() {
               <th className="px-4 py-4 text-xs font-bold">Ngày gửi</th>
               <th className="px-4 py-4 text-xs font-bold">Giờ đặt</th>
               <th className="px-4 py-4 text-xs font-bold">Xe / Tài xế</th>
+              <th className="px-4 py-4 text-xs font-bold text-center">Thanh toán cọc</th>
               <th className="px-4 py-4 text-xs font-bold">Trạng thái</th>
-              <th className="px-4 py-4 text-xs font-bold">Hành động</th>
+              <th className="px-4 py-4 text-xs font-bold text-center">Hành động</th>
             </tr>
           </thead>
           <tbody>
             {filteredOrders.length === 0 ? (
-              <tr><td colSpan="10" className="text-center py-10 text-gray-400 text-sm">Không có đơn hàng nào</td></tr>
+              <tr><td colSpan="11" className="text-center py-10 text-gray-400 text-sm">Không có đơn hàng nào</td></tr>
             ) : (
               filteredOrders.map((order) => {
                 const orderAssigns = assignments[order.id] || [];
@@ -333,17 +326,41 @@ export default function OrdersPage() {
                         <span className="text-xs text-gray-400 italic">Chưa phân công</span>
                       )}
                     </td>
+                    
+                    {/* CỘT THANH TOÁN CỌC */}
+                    <td className="px-4 py-4 text-center">
+                      <select 
+                        value={order.deposit_status || 'unpaid'} 
+                        onChange={(e) => handleDepositChange(order.id, e.target.value)} 
+                        className={`border rounded-lg px-2 py-1.5 text-xs font-bold outline-none focus:ring-2 focus:ring-agro-dark ${
+                          order.deposit_status === 'paid' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-red-50 text-red-600 border-red-200'
+                        }`}
+                      >
+                        <option value="unpaid">Chưa cọc</option>
+                        <option value="paid">Đã cọc</option>
+                      </select>
+                    </td>
+
                     <td className="px-4 py-4">
                       <select value={order.status} onChange={(e) => updateOrderStatus(order.id, e.target.value)} className={`border rounded-lg px-2 py-1.5 text-xs font-bold outline-none focus:ring-2 focus:ring-agro-dark ${orderStatusOptions.find((s) => s.value === order.status)?.color}`}>
                         {orderStatusOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                       </select>
                     </td>
+                    
+                    {/* CỘT HÀNH ĐỘNG */}
                     <td className="px-4 py-4">
-                      {orderAssigns.length === 0 ? (
-                        <button onClick={() => openAssignModal(order)} className="bg-agro-yellow hover:bg-yellow-500 text-agro-dark font-bold px-3 py-2 rounded-lg text-xs whitespace-nowrap">Phân công</button>
-                      ) : (
-                        <button onClick={() => handleUnassign(order)} className="bg-red-50 hover:bg-red-100 text-red-600 font-bold px-3 py-2 rounded-lg text-xs whitespace-nowrap">Hủy PC</button>
-                      )}
+                      <div className="flex items-center gap-2 justify-center">
+                        {orderAssigns.length === 0 ? (
+                          <button onClick={() => openAssignModal(order)} className="bg-agro-yellow hover:bg-yellow-500 text-agro-dark font-bold px-3 py-2 rounded-lg text-xs whitespace-nowrap">Phân công</button>
+                        ) : (
+                          <button onClick={() => handleUnassign(order)} className="bg-red-50 hover:bg-red-100 text-red-600 font-bold px-3 py-2 rounded-lg text-xs whitespace-nowrap">Hủy PC</button>
+                        )}
+                        
+                        {/* NÚT XÓA ĐƠN */}
+                        <button onClick={() => handleDeleteOrder(order.id)} className="bg-gray-100 hover:bg-red-100 text-gray-500 hover:text-red-600 p-2 rounded-lg transition-colors" title="Xóa đơn">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

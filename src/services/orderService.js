@@ -1,11 +1,10 @@
 import { supabase } from '../lib/supabaseClient';
 import { calcBoxes, matchProduct } from '../lib/coldChain';
 
-// Tọa độ và địa chỉ Hub cố định
 export const HUB_ADDRESS = 'Kho lạnh AgroCold - 123 Lê Duẩn, TP. Buôn Ma Thuột, Đắk Lắk';
 export const HUB_COORDS = { lat: 12.6662, lng: 108.0382 };
 
-export const createOrder = async (orderData) => {
+export const createOrder = async (orderData, totalPrice, depositAmount) => {
   const weight = parseFloat(orderData.weight);
   const boxes = calcBoxes(weight);
   const product = matchProduct(orderData.product_type);
@@ -24,12 +23,14 @@ export const createOrder = async (orderData) => {
         status: 'pending',
         temperature: product.minTemp,
         pickup_time: orderData.pickup_time || null,
-        // GHI ĐÈ CỨNG TỌA ĐỘ HUB
         pickup_address: HUB_ADDRESS,
         pickup_lat: HUB_COORDS.lat,
         pickup_lng: HUB_COORDS.lng,
         delivery_lat: orderData.delivery_lat || null,
         delivery_lng: orderData.delivery_lng || null,
+        total_price: totalPrice,
+        deposit_amount: depositAmount,
+        deposit_status: 'unpaid' // Mặc định là chưa cọc
       },
     ])
     .select()
@@ -50,6 +51,25 @@ export const createOrder = async (orderData) => {
   if (boxError) throw boxError;
 
   return order;
+};
+
+// Cập nhật trạng thái cọc
+export const updateDepositStatus = async (orderId, status) => {
+  const { error } = await supabase
+    .from('orders')
+    .update({ deposit_status: status })
+    .eq('id', orderId);
+  if (error) throw error;
+};
+
+// Xóa đơn hàng
+export const deleteOrder = async (orderId) => {
+  // Xóa các bảng liên quan trước khi xóa đơn (nếu có)
+  await supabase.from('boxes').delete().eq('order_id', orderId);
+  await supabase.from('order_assignments').delete().eq('order_id', orderId);
+  
+  const { error } = await supabase.from('orders').delete().eq('id', orderId);
+  if (error) throw error;
 };
 
 export const getOrderByCode = async (code) => {
