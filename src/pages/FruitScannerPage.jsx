@@ -1,6 +1,18 @@
 import { useState, useRef, useEffect } from 'react';
 import * as tmImage from '@teachablemachine/image';
-import { Camera, BrainCircuit, Loader2, ArrowLeft, ShieldAlert, ShieldCheck, RefreshCw, Cpu, Upload, CheckCircle2 } from 'lucide-react';
+import { 
+  Camera, 
+  BrainCircuit, 
+  Loader2, 
+  ArrowLeft, 
+  ShieldAlert, 
+  ShieldCheck, 
+  RefreshCw, 
+  Cpu, 
+  Upload, 
+  CheckCircle2,
+  AlertTriangle // <-- ĐÃ THÊM ICON NÀY VÀO ĐÂY
+} from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { generateAdvice } from '../lib/visionAI';
 
@@ -79,7 +91,6 @@ export default function FruitScannerPage() {
     }
   };
 
-  // Hàm tắt Camera (Không xóa kết quả)
   const stopCameraOnly = () => {
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
@@ -91,7 +102,6 @@ export default function FruitScannerPage() {
     setIsCameraOn(false);
   };
 
-  // Hàm reset toàn bộ (Dùng khi bấm Quét trái khác)
   const resetScanner = () => {
     stopCameraOnly();
     setResult(null);
@@ -133,7 +143,7 @@ export default function FruitScannerPage() {
       alert("Lỗi phân tích hình ảnh.");
     } finally {
       setIsScanning(false);
-      stopCameraOnly(); // Tắt cam nhưng GIỮ NGUYÊN kết quả
+      stopCameraOnly(); 
     }
   };
 
@@ -194,7 +204,6 @@ export default function FruitScannerPage() {
               
               <div ref={hiddenCanvasRef} style={{ display: 'none' }}></div>
               
-              {/* Hiển thị ảnh chụp kết quả (Ưu tiên hiển thị trên cùng) */}
               {result ? (
                 <img src={result.capturedImage} alt="Captured" className="absolute inset-0 z-30 w-full h-full object-cover" />
               ) : (
@@ -271,7 +280,6 @@ export default function FruitScannerPage() {
             
             <div className="p-6 space-y-6">
               
-              {/* NHẬN DIỆN CHÍNH */}
               <div className="flex items-center gap-4">
                 <div className={`w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0 ${
                   result.alertLevel === 'danger' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'
@@ -286,7 +294,6 @@ export default function FruitScannerPage() {
                 </div>
               </div>
 
-              {/* KHUYẾN CÁO & KẾT LUẬN */}
               <div className={`p-5 rounded-xl border-l-4 shadow-sm ${
                 result.alertLevel === 'danger' ? 'bg-red-50 border-red-500' : 
                 result.alertLevel === 'warning' ? 'bg-amber-50 border-amber-500' : 
@@ -304,7 +311,6 @@ export default function FruitScannerPage() {
                 }`}>{result.recommendation}</p>
               </div>
 
-              {/* RỦI RO */}
               <div>
                 <p className="font-bold text-agro-dark text-sm mb-2 flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4 text-amber-500" /> Rủi ro cần cân nhắc:
@@ -319,7 +325,6 @@ export default function FruitScannerPage() {
                 </ul>
               </div>
 
-              {/* CHI TIẾT 2 MODEL */}
               <div className="pt-4 border-t border-gray-100">
                  <p className="text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">Chi tiết phân tích của 2 Model AI:</p>
                  <div className="grid grid-cols-2 gap-4">
@@ -342,7 +347,6 @@ export default function FruitScannerPage() {
                  </div>
               </div>
 
-              {/* NÚT HÀNH ĐỘNG */}
               {result.isGood && result.alertLevel !== 'danger' && (
                 <button 
                   onClick={() => navigate('/booking')}
