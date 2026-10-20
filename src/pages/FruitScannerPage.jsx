@@ -18,9 +18,12 @@ export default function FruitScannerPage() {
   const [isScanning, setIsScanning] = useState(false);
   const [result, setResult] = useState(null);
   
-  const canvasRef = useRef(null);
+  // Refs
+  const hiddenCanvasRef = useRef(null); // Nơi chứa canvas gốc của Teachable Machine (bị ẩn đi)
+  const displayImgRef = useRef(null);   // Nơi hiển thị hình ảnh ra màn hình
   const webcamInstance = useRef(null);
   const fileInputRef = useRef(null);
+  const animationFrameRef = useRef(null);
 
   useEffect(() => {
     const loadModels = async () => {
@@ -38,6 +41,12 @@ export default function FruitScannerPage() {
       }
     };
     loadModels();
+
+    // Dọn dẹp khi component bị hủy
+    return () => {
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      if (webcamInstance.current) webcamInstance.current.stop();
+    };
   }, []);
 
   const startCamera = async () => {
@@ -51,17 +60,15 @@ export default function FruitScannerPage() {
       await webcamInstance.current.setup();
       await webcamInstance.current.play();
       
-      if (canvasRef.current) {
-        canvasRef.current.innerHTML = ''; 
-        const canvas = webcamInstance.current.canvas;
-        
-        // Cấu hình Canvas hiển thị đè lên trên
-        canvas.style.width = '100%';
-        canvas.style.height = '100%';
-        canvas.style.objectFit = 'cover';
-        
-        canvasRef.current.appendChild(canvas);
+      // Gắn canvas của Teachable Machine vào một thẻ div ẩn
+      if (hiddenCanvasRef.current) {
+        hiddenCanvasRef.current.innerHTML = ''; 
+        hiddenCanvasRef.current.appendChild(webcamInstance.current.canvas);
       }
+
+      // Bắt đầu vòng lặp copy hình ảnh từ canvas ẩn ra thẻ img hiển thị
+      updateDisplayLoop();
+      
     } catch (err) {
       console.error("Lỗi bật camera:", err);
       alert("Không thể truy cập Camera. Vui lòng dùng nút 'Tải ảnh lên'.");
@@ -69,7 +76,24 @@ export default function FruitScannerPage() {
     }
   };
 
+  // Hàm liên tục cập nhật hình ảnh ra màn hình
+  const updateDisplayLoop = () => {
+    if (webcamInstance.current && displayImgRef.current) {
+      webcamInstance.current.update();
+      
+      // Lấy dữ liệu ảnh từ canvas ẩn và gán vào thẻ img hiển thị
+      const dataUrl = webcamInstance.current.canvas.toDataURL('image/jpeg');
+      displayImgRef.current.src = dataUrl;
+      
+      // Lặp lại sau mỗi frame (khoảng 60fps)
+      animationFrameRef.current = requestAnimationFrame(updateDisplayLoop);
+    }
+  };
+
   const stopCamera = () => {
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+    }
     if (webcamInstance.current) {
       webcamInstance.current.stop();
       webcamInstance.current = null;
@@ -81,7 +105,6 @@ export default function FruitScannerPage() {
   const processImage = async (imageElement) => {
     setIsScanning(true);
     try {
-      // AI Phân tích
       const predQuality = await modelQuality.predict(imageElement);
       let topQuality = predQuality[0];
       for (let i = 1; i < predQuality.length; i++) {
@@ -115,18 +138,17 @@ export default function FruitScannerPage() {
       alert("Lỗi phân tích hình ảnh.");
     } finally {
       setIsScanning(false);
-      if (isCameraOn) stopCamera(); // Tắt cam sau khi phân tích xong
+      if (isCameraOn) stopCamera();
     }
   };
 
   const handleAnalyze = async () => {
     if (!webcamInstance.current || !modelQuality || !modelType) return;
     
-    // QUAN TRỌNG: Cập nhật khung hình mới nhất và đợi 1 nhịp (100ms) để lưu vào bộ nhớ trước khi phân tích
-    webcamInstance.current.update();
+    // Lấy canvas gốc của Teachable Machine để đưa cho AI phân tích
     const currentCanvas = webcamInstance.current.canvas;
     
-    setIsScanning(true); // Bật hiệu ứng loading
+    setIsScanning(true); 
     
     setTimeout(() => {
       processImage(currentCanvas);
@@ -178,15 +200,22 @@ export default function FruitScannerPage() {
           
           <div className="mb-6 flex flex-col items-center">
             
-            {/* Khung chứa Camera (Đã cấu hình z-index để canvas nổi lên trên) */}
+            {/* KHUNG HIỂN THỊ CAMERA */}
             <div className="w-[300px] h-[300px] bg-gray-900 rounded-2xl overflow-hidden relative shadow-inner">
               
-              {/* Thẻ div chứa Canvas Camera - Nổi lên trên */}
-              <div ref={canvasRef} className="absolute inset-0 z-10"></div>
+              {/* Thẻ div ẩn chứa canvas gốc của AI (Không cho hiển thị ra ngoài) */}
+              <div ref={hiddenCanvasRef} style={{ display: 'none' }}></div>
               
-              {/* Icon đen khi tắt cam (Chỉ hiện khi tắt cam) */}
+              {/* Thẻ img này sẽ hiển thị hình ảnh Camera cho người dùng xem */}
+              <img 
+                ref={displayImgRef} 
+                alt="Camera Feed" 
+                className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${isCameraOn ? 'opacity-100 z-10' : 'opacity-0 z-0'}`}
+              />
+
+              {/* Lớp phủ icon Camera tắt */}
               {!isCameraOn && !result && (
-                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center text-center text-gray-400 pointer-events-none">
+                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center text-center text-gray-400">
                   <Camera className="w-12 h-12 mx-auto mb-2 opacity-50" />
                   <p className="text-sm font-medium">Camera đang tắt</p>
                 </div>
