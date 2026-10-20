@@ -11,8 +11,25 @@ import {
   X,
   CheckCircle,
   Trash2,
-  AlertCircle
+  AlertCircle,
+  Link as LinkIcon // Icon cho tính năng ghép chuyến
 } from 'lucide-react';
+
+// Hàm tính khoảng cách tương đối giữa 2 tọa độ (dùng để check "gần nhau")
+const isNearby = (lat1, lng1, lat2, lng2) => {
+  if (!lat1 || !lng1 || !lat2 || !lng2) return false;
+  // Tính khoảng cách Euclid đơn giản (không cần chính xác tuyệt đối cho gợi ý)
+  const dist = Math.sqrt(Math.pow(lat1 - lat2, 2) + Math.pow(lng1 - lng2, 2));
+  return dist < 0.5; // Khoảng cách < 0.5 độ (khoảng ~50km) thì coi là gần
+};
+
+// Hàm tính chênh lệch giờ
+const hoursDiff = (date1, time1, date2, time2) => {
+  if (!date1 || !time1 || !date2 || !time2) return 99;
+  const d1 = new Date(`${date1}T${time1}`);
+  const d2 = new Date(`${date2}T${time2}`);
+  return Math.abs(d1 - d2) / 36e5; // miliseconds to hours
+};
 
 export default function OrdersPage() {
   const [orders, setOrders] = useState([]);
@@ -23,9 +40,14 @@ export default function OrdersPage() {
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
 
+  // Modal Phân công
   const [assignModal, setAssignModal] = useState(null);
   const [assignList, setAssignList] = useState([]);
   const [assigning, setAssigning] = useState(false);
+  
+  // State cho tính năng ghép chuyến
+  const [mergeSuggestions, setMergeSuggestions] = useState([]);
+  const [selectedMergeOrders, setSelectedMergeOrders] = useState([]);
 
   useEffect(() => {
     fetchData();
@@ -62,23 +84,175 @@ export default function OrdersPage() {
     }
   };
 
-  const handleDepositChange = async (orderId, status) => {
-    try {
-      await updateDepositStatus(orderId, status);
-      fetchData();
-    } catch (err) {
-      alert('Lỗi cập nhật cọc: ' + err.message);
-    }
+  // Hàm tìm các đơn có thể ghép chuyến
+  const findMergeSuggestions = (currentOrder) => {
+    // 1. Lấy các đơn chưa phân công, cùng ngày gửi
+    const unassigned = orders.filter(o => 
+      o.id !== currentOrder.id && 
+      (!assignments[o.id] || assignments[o.id].length === 0) &&
+      o.status === 'pending' &&
+      o.send_date === currentOrder.send_date
+    );
+
+    // 2. Lọc theo điều kiện: Gần nhau, giờ cách <= 4h, tổng thùng <= 12
+    const validSuggestions = unassigned.filter(o => {
+      const near = isNearby(currentOrder.delivery_lat, currentOrder.delivery_lng, o.delivery_lat, o.delivery_lng);
+      const timeClose = hoursDiff(currentOrder.send_date, currentOrder.pickup_time, o.send_date, o.pickup_time) <= 4;
+      const totalBoxes = (currentOrder.boxes || 0) + (o.boxes || 0);
+      
+      return near && timeClose && totalBoxes <= 12;
+    });
+
+    setMergeSuggestions(validSuggestions);
+    setSelectedMergeOrders([]); // Reset lựa chọn
   };
 
-  const handleDeleteOrder = async (orderId) => {
-    if (!window.confirm('Bạn có chắc chắn muốn xóa đơn hàng này? Hành động này không thể hoàn tác!')) return;
+  const handleOpenAssignModal = (order) => {
+    setAssignModal(order);
+    findMergeSuggestions(order); // Tìm đơn ghép ngay khi mở Modal
+    
+    // Khởi tạo danh sách xe mặc định cho đơn hiện tại
+    const distribution = calculateVehicles(order.boxes);
+    const existing = assignments[order.id] || [];
+    const list = distribution.map((boxes, i) => ({
+      vehicleId: existing[i]?.vehicle_id || '',
+      driverId: existing[i]?.driver_id || '',
+      boxes: boxes,
+    }));
+    setAssignList(list);
+  };
+
+  const handleToggleMergeOrder = (order) => {
+    setSelectedMergeOrders(prev => {
+      const exists = prev.find(o => o.id === order.id);
+      if (exists) return prev.filter(o => o.id !== order.id);
+      return [...prev, order];
+    });
+  };
+
+  // Tính lại số xe khi có ghép chuyến
+  useEffect(() => {
+    if (!assignModal) return;
+    
+    // Tổng số thùng bao gồm cả các đơn được ghép
+    const totalBoxes = (assignModal.boxes || 0) + selectedMergeOrders.reduce((sum, o) => sum + (o.boxes || 0), 0);
+    
+    // Chia lại số xe (12 thùng/xe)
+    const numVehicles = Math.ceil(totalBoxes / 12);
+    const distribution = [];
+    let remaining = totalBoxes;
+    
+    for (let i = 0; i < numVehicles; i++) {
+      const assigned = remaining >= 12 ? 12 : remaining;
+      distribution.push(assigned);
+      remaining -= assigned;
+    }
+
+    const existing = assignments[assignModal.id] || [];
+    const list = distribution.map((boxes, i) => ({
+      vehicleId: existing[i]?.vehicle_id || '',
+      driverId: existing[i]?.driver_id || '',
+      boxes: boxes,
+    }));
+    setAssignList(list);
+  }, [selectedMergeOrders, assignModal]);
+
+  const calculateVehicles = (boxes) => {
+    const numVehicles = Math.ceil((boxes || 0) / 12);
+    const distribution = [];
+    let remaining = boxes || 0;
+    for (let i = 0; i < numVehicles; i++) {
+      const assigned = remaining >= 12 ? 12 : remaining;
+      distribution.push(assigned);
+      remaining -= assigned;
+    }
+    return distribution;
+  };
+
+  const updateAssignment = (index, field, value) => {
+    setAssignList((prev) => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+  };
+
+  const handleAssign = async () => {
+    const invalid = assignList.some((a) => !a.vehicleId || !a.driverId);
+    if (invalid) return alert('Chọn đủ xe và tài xế!');
+    
+    const vehicleIds = assignList.map((a) => a.vehicleId);
+    if (new Set(vehicleIds).size !== vehicleIds.length) return alert('Trùng xe!');
+    
+    const driverIds = assignList.map((a) => a.driverId);
+    if (new Set(driverIds).size !== driverIds.length) return alert('Trùng tài xế!');
+
+    setAssigning(true);
     try {
-      await deleteOrder(orderId);
-      alert('Đã xóa đơn hàng!');
+      // Xóa phân công cũ của các đơn liên quan (nếu có)
+      await supabase.from('order_assignments').delete().eq('order_id', assignModal.id);
+      for (const mergeOrder of selectedMergeOrders) {
+        await supabase.from('order_assignments').delete().eq('order_id', mergeOrder.id);
+      }
+
+      // Tạo phân công mới cho đơn chính
+      const inserts = assignList.map((a) => ({
+        order_id: assignModal.id, 
+        vehicle_id: a.vehicleId, 
+        driver_id: a.driverId, 
+        boxes_assigned: a.boxes, 
+        status: 'assigned',
+      }));
+      await supabase.from('order_assignments').insert(inserts);
+
+      // Cập nhật trạng thái đơn chính
+      await supabase.from('orders').update({
+        status: 'shipping', 
+        vehicle_id: assignList[0].vehicleId, 
+        driver_id: assignList[0].driverId,
+      }).eq('id', assignModal.id);
+
+      // NẾU CÓ GHÉP CHUYẾN: Cập nhật luôn cho các đơn được ghép
+      for (const mergeOrder of selectedMergeOrders) {
+        await supabase.from('order_assignments').insert({
+          order_id: mergeOrder.id,
+          vehicle_id: assignList[assignList.length - 1].vehicleId, // Cho lên xe cuối cùng
+          driver_id: assignList[assignList.length - 1].driverId,
+          boxes_assigned: mergeOrder.boxes,
+          status: 'assigned',
+        });
+        await supabase.from('orders').update({
+          status: 'shipping',
+          vehicle_id: assignList[assignList.length - 1].vehicleId,
+          driver_id: assignList[assignList.length - 1].driverId,
+        }).eq('id', mergeOrder.id);
+      }
+
+      // Cập nhật trạng thái xe và tài xế
+      for (const a of assignList) {
+        await supabase.from('vehicles').update({
+          status: 'in_transit', 
+          current_order_ids: [assignModal.id, ...selectedMergeOrders.map(o => o.id)], 
+          current_driver_id: a.driverId, 
+          current_route: `Gom đơn (${assignModal.order_code}...)`, 
+          departed_at: new Date().toISOString(), 
+          estimated_return_at: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString(),
+        }).eq('id', a.vehicleId);
+
+        await supabase.from('drivers').update({
+          status: 'on_duty', 
+          current_vehicle_id: a.vehicleId,
+        }).eq('id', a.driverId);
+      }
+
+      alert(`Phân công thành công! Đã ghép ${selectedMergeOrders.length} đơn.`);
+      setAssignModal(null);
+      setSelectedMergeOrders([]);
       fetchData();
     } catch (err) {
-      alert('Lỗi xóa đơn: ' + err.message);
+      alert('Lỗi: ' + err.message);
+    } finally {
+      setAssigning(false);
     }
   };
 
@@ -106,80 +280,6 @@ export default function OrdersPage() {
       fetchData();
     } catch (err) {
       alert('Lỗi: ' + err.message);
-    }
-  };
-
-  const calculateVehicles = (boxes) => {
-    const numVehicles = Math.ceil((boxes || 0) / 12);
-    const distribution = [];
-    let remaining = boxes || 0;
-    for (let i = 0; i < numVehicles; i++) {
-      const assigned = remaining >= 12 ? 12 : remaining;
-      distribution.push(assigned);
-      remaining -= assigned;
-    }
-    return distribution;
-  };
-
-  const openAssignModal = (order) => {
-    const distribution = calculateVehicles(order.boxes);
-    const existing = assignments[order.id] || [];
-    const list = distribution.map((boxes, i) => ({
-      vehicleId: existing[i]?.vehicle_id || '',
-      driverId: existing[i]?.driver_id || '',
-      boxes: boxes,
-    }));
-    setAssignList(list);
-    setAssignModal(order);
-  };
-
-  const updateAssignment = (index, field, value) => {
-    setAssignList((prev) => {
-      const updated = [...prev];
-      updated[index] = { ...updated[index], [field]: value };
-      return updated;
-    });
-  };
-
-  const handleAssign = async () => {
-    const invalid = assignList.some((a) => !a.vehicleId || !a.driverId);
-    if (invalid) return alert('Chọn đủ xe và tài xế!');
-    
-    const vehicleIds = assignList.map((a) => a.vehicleId);
-    if (new Set(vehicleIds).size !== vehicleIds.length) return alert('Trùng xe!');
-    
-    const driverIds = assignList.map((a) => a.driverId);
-    if (new Set(driverIds).size !== driverIds.length) return alert('Trùng tài xế!');
-
-    setAssigning(true);
-    try {
-      await supabase.from('order_assignments').delete().eq('order_id', assignModal.id);
-      const inserts = assignList.map((a) => ({
-        order_id: assignModal.id, vehicle_id: a.vehicleId, driver_id: a.driverId, boxes_assigned: a.boxes, status: 'assigned',
-      }));
-      await supabase.from('order_assignments').insert(inserts);
-
-      await supabase.from('orders').update({
-        status: 'shipping', vehicle_id: assignList[0].vehicleId, driver_id: assignList[0].driverId,
-      }).eq('id', assignModal.id);
-
-      for (const a of assignList) {
-        await supabase.from('vehicles').update({
-          status: 'in_transit', current_order_ids: [assignModal.id], current_driver_id: a.driverId, current_route: `${assignModal.pickup_address} → ${assignModal.delivery_address}`, departed_at: new Date().toISOString(), estimated_return_at: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString(),
-        }).eq('id', a.vehicleId);
-
-        await supabase.from('drivers').update({
-          status: 'on_duty', current_vehicle_id: a.vehicleId,
-        }).eq('id', a.driverId);
-      }
-
-      alert(`Phân công thành công ${assignList.length} xe!`);
-      setAssignModal(null);
-      fetchData();
-    } catch (err) {
-      alert('Lỗi: ' + err.message);
-    } finally {
-      setAssigning(false);
     }
   };
 
@@ -351,12 +451,11 @@ export default function OrdersPage() {
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-2 justify-center">
                         {orderAssigns.length === 0 ? (
-                          <button onClick={() => openAssignModal(order)} className="bg-agro-yellow hover:bg-yellow-500 text-agro-dark font-bold px-3 py-2 rounded-lg text-xs whitespace-nowrap">Phân công</button>
+                          <button onClick={() => handleOpenAssignModal(order)} className="bg-agro-yellow hover:bg-yellow-500 text-agro-dark font-bold px-3 py-2 rounded-lg text-xs whitespace-nowrap">Phân công</button>
                         ) : (
                           <button onClick={() => handleUnassign(order)} className="bg-red-50 hover:bg-red-100 text-red-600 font-bold px-3 py-2 rounded-lg text-xs whitespace-nowrap">Hủy PC</button>
                         )}
                         
-                        {/* NÚT XÓA ĐƠN */}
                         <button onClick={() => handleDeleteOrder(order.id)} className="bg-gray-100 hover:bg-red-100 text-gray-500 hover:text-red-600 p-2 rounded-lg transition-colors" title="Xóa đơn">
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -370,22 +469,53 @@ export default function OrdersPage() {
         </table>
       </div>
 
-      {/* Modal Phân công (Giữ nguyên) */}
+      {/* MODAL PHÂN CÔNG + GHÉP CHUYẾN */}
       {assignModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setAssignModal(null)}>
-          <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl max-w-3xl w-full shadow-2xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-5 border-b border-gray-100 sticky top-0 bg-white z-10">
-              <h3 className="font-bold text-agro-dark">Phân công {assignList.length} xe vận chuyển</h3>
+              <h3 className="font-bold text-agro-dark">Phân công vận chuyển</h3>
               <button onClick={() => setAssignModal(null)} className="text-gray-400 hover:text-agro-dark"><X className="w-5 h-5" /></button>
             </div>
+            
             <div className="p-5 space-y-4">
               <div className="bg-agro-bg rounded-xl p-4 border border-gray-100">
                 <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div><p className="text-xs text-gray-500">Khách hàng</p><p className="font-semibold">{assignModal.customer_name}</p></div>
+                  <div><p className="text-xs text-gray-500">Mã đơn</p><p className="font-semibold">{assignModal.order_code}</p></div>
                   <div><p className="text-xs text-gray-500">Số thùng</p><p className="font-semibold">{assignModal.boxes} thùng</p></div>
                   <div className="col-span-2"><p className="text-xs text-gray-500">Tuyến</p><p className="font-semibold text-xs">{assignModal.pickup_address} → {assignModal.delivery_address}</p></div>
                 </div>
               </div>
+
+              {/* GỢI Ý GHÉP CHUYẾN */}
+              {mergeSuggestions.length > 0 && (
+                <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <LinkIcon className="w-5 h-5 text-blue-600" />
+                    <h4 className="font-bold text-blue-800 text-sm">Có {mergeSuggestions.length} đơn có thể ghép chuyến</h4>
+                  </div>
+                  <p className="text-xs text-blue-600 mb-3">Các đơn này cùng ngày, gần nhau, cách &lt; 4h và tổng thùng &le; 12.</p>
+                  
+                  <div className="space-y-2">
+                    {mergeSuggestions.map(o => (
+                      <label key={o.id} className="flex items-center gap-3 bg-white p-2.5 rounded-lg border border-blue-100 cursor-pointer hover:bg-blue-50 transition-colors">
+                        <input 
+                          type="checkbox" 
+                          checked={selectedMergeOrders.some(so => so.id === o.id)}
+                          onChange={() => handleToggleMergeOrder(o)}
+                          className="w-4 h-4 accent-blue-600"
+                        />
+                        <div className="flex-1">
+                          <p className="font-bold text-sm text-agro-dark">{o.order_code} - {o.customer_name}</p>
+                          <p className="text-xs text-gray-500">{o.boxes} thùng · {o.pickup_time} · {o.delivery_address}</p>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* DANH SÁCH XE (CẬP NHẬT THEO SỐ THÙNG GHÉP) */}
               <div className="space-y-3">
                 {assignList.map((assign, index) => (
                   <div key={index} className="bg-white border-2 border-gray-100 rounded-xl p-4 hover:border-agro-yellow">
@@ -414,9 +544,10 @@ export default function OrdersPage() {
                 ))}
               </div>
             </div>
+
             <div className="flex gap-3 p-5 border-t border-gray-100 sticky bottom-0 bg-white">
               <button onClick={() => setAssignModal(null)} className="flex-1 border-2 border-gray-300 hover:bg-gray-50 font-bold py-3 rounded-xl">Hủy</button>
-              <button onClick={handleAssign} disabled={assigning || assignList.some((a) => !a.vehicleId || !a.driverId)} className="flex-1 bg-agro-yellow hover:bg-yellow-500 font-bold py-3 rounded-xl disabled:opacity-50">{assigning ? 'Đang xử lý...' : `Xác nhận ${assignList.length} xe`}</button>
+              <button onClick={handleAssign} disabled={assigning || assignList.some((a) => !a.vehicleId || !a.driverId)} className="flex-1 bg-agro-yellow hover:bg-yellow-500 font-bold py-3 rounded-xl disabled:opacity-50">{assigning ? 'Đang xử lý...' : `Xác nhận phân công`}</button>
             </div>
           </div>
         </div>
