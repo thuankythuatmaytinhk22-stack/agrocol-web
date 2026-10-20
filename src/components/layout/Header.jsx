@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LogOut, Settings, Truck } from 'lucide-react';
+import { LogOut, Settings, Truck, BrainCircuit } from 'lucide-react';
 
 export default function Header() {
   const location = useLocation();
@@ -8,11 +8,13 @@ export default function Header() {
   const isAdmin = localStorage.getItem('isAdmin') === 'true';
   const isPartner = localStorage.getItem('isPartner') === 'true';
 
+  // Đã thêm mục AI Phân loại
   const navItems = [
     { name: 'Trang chủ', path: '/' },
     { name: 'Đặt thùng', path: '/booking' },
     { name: 'Chuyến hàng', path: '/tracking' },
     { name: 'Quản lý đơn', path: '/box-management' },
+    { name: 'AI Phân loại hàng', path: '/fruit-scan' }, 
   ];
 
   const handleLogout = () => {
@@ -21,15 +23,13 @@ export default function Header() {
     navigate('/');
   };
 
-  // Chuyển sang trang login Đối tác (xóa sạch admin)
   const goToPartner = () => {
-    localStorage.clear(); // Xóa sạch sẽ
+    localStorage.clear();
     navigate('/partner/login');
   };
 
-  // Chuyển sang trang login Admin (xóa sạch partner)
   const goToAdmin = () => {
-    localStorage.clear(); // Xóa sạch sẽ
+    localStorage.clear();
     navigate('/login');
   };
 
@@ -48,17 +48,18 @@ export default function Header() {
               <Link
                 key={item.path}
                 to={item.path}
-                className={`text-sm font-semibold transition-colors ${
+                className={`text-sm font-semibold transition-colors flex items-center gap-1.5 ${
                   location.pathname === item.path
                     ? 'text-agro-dark border-b-2 border-agro-yellow pb-1'
                     : 'text-gray-600 hover:text-agro-dark'
                 }`}
               >
+                {/* Thêm icon bộ não cho mục AI cho nổi bật */}
+                {item.name === 'AI Phân loại hàng' && <BrainCircuit className="w-4 h-4 text-agro-dark" />}
                 {item.name}
               </Link>
             ))}
 
-            {/* KHU VỰC ĐỐI TÁC */}
             <div className="flex items-center gap-2 pl-4 border-l border-gray-200">
               {isPartner ? (
                 <>
@@ -76,7 +77,6 @@ export default function Header() {
               )}
             </div>
 
-            {/* KHU VỰC ADMIN */}
             <div className="flex items-center gap-2 pl-4 border-l border-gray-200">
               {isAdmin ? (
                 <>
