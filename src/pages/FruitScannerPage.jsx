@@ -48,21 +48,22 @@ export default function FruitScannerPage() {
 
     try {
       const flip = true; 
-      // Kích thước gốc của webcam
       webcamInstance.current = new tmImage.Webcam(300, 300, flip);
       await webcamInstance.current.setup();
       await webcamInstance.current.play();
       
-      // Gắn thẻ canvas trực tiếp vào DOM thông qua ref
       if (canvasRef.current) {
         canvasRef.current.innerHTML = ''; 
         const canvas = webcamInstance.current.canvas;
         
-        // Ép CSS cho canvas luôn phủ kín khung và không bị bóp méo
+        // ÉP CSS TRỰC TIẾP BẰNG JS ĐỂ KHÔNG BỊ TAILWIND GHI ĐÈ
+        canvas.style.position = 'absolute';
+        canvas.style.top = '0';
+        canvas.style.left = '0';
         canvas.style.width = '100%';
         canvas.style.height = '100%';
         canvas.style.objectFit = 'cover';
-        canvas.style.borderRadius = '1rem'; // Bo góc cho đẹp
+        canvas.style.zIndex = '10';
         
         canvasRef.current.appendChild(canvas);
       }
@@ -172,28 +173,27 @@ export default function FruitScannerPage() {
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
           
           <div className="mb-6 flex flex-col items-center">
-            {/* KHUNG CHỨA CAMERA - Đã sửa lỗi hiển thị */}
-            <div className="w-[300px] h-[300px] bg-gray-900 rounded-2xl overflow-hidden relative shadow-inner flex items-center justify-center">
+            
+            {/* KHUNG CAMERA ĐÃ ĐƯỢC FIX CSS */}
+            <div className="w-[300px] h-[300px] bg-gray-900 rounded-2xl overflow-hidden relative shadow-inner">
               
-              {/* Ref này sẽ chứa thẻ <canvas> của Camera */}
-              <div ref={canvasRef} className={`w-full h-full ${isCameraOn ? 'block' : 'hidden'}`}></div>
+              {/* Ref chứa canvas */}
+              <div ref={canvasRef} className="absolute inset-0 z-10"></div>
               
-              {/* Hiển thị icon khi tắt Camera */}
+              {/* Lớp phủ (Chỉ hiện khi tắt cam hoặc có ảnh) */}
               {!isCameraOn && !result && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-center text-gray-400">
+                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center text-center text-gray-400">
                   <Camera className="w-12 h-12 mx-auto mb-2 opacity-50" />
                   <p className="text-sm font-medium">Camera đang tắt</p>
                 </div>
               )}
 
-              {/* Hiển thị ảnh đã chụp khi có kết quả */}
               {result && (
-                <img src={result.capturedImage} alt="Captured" className="absolute inset-0 w-full h-full object-cover" />
+                <img src={result.capturedImage} alt="Captured" className="absolute inset-0 z-20 w-full h-full object-cover" />
               )}
 
-              {/* Hiệu ứng đang quét */}
               {isScanning && (
-                <div className="absolute inset-0 bg-agro-dark/60 backdrop-blur-sm flex flex-col items-center justify-center text-white z-10">
+                <div className="absolute inset-0 z-30 bg-agro-dark/60 backdrop-blur-sm flex flex-col items-center justify-center text-white">
                   <Loader2 className="w-10 h-10 animate-spin text-agro-yellow mb-3" />
                   <p className="font-bold">AI đang phân tích...</p>
                 </div>
