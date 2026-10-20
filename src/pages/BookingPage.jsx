@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { createOrder, cancelOrder } from '../services/orderService';
-import { CheckCircle, MapPin, AlertCircle, Phone, X } from 'lucide-react';
+import { CheckCircle, MapPin, AlertCircle, Phone } from 'lucide-react';
 import LocationPicker from '../components/map/LocationPicker';
 
 const PRICE_PER_BOX = 400000; 
@@ -51,7 +51,7 @@ export default function BookingPage() {
   // State cho thanh toán cọc
   const [showQR, setShowQR] = useState(false);
   const [currentOrderData, setCurrentOrderData] = useState(null);
-  const [currentDepositAmount, setCurrentDepositAmount] = useState(0); // Thêm state lưu tiền cọc
+  const [currentDepositAmount, setCurrentDepositAmount] = useState(0);
 
   const product = getProductInfo(formData.product_type);
 
@@ -85,7 +85,7 @@ export default function BookingPage() {
 
     setLoading(true);
     try {
-      const deposit = cost * 0.5; // Tính tiền cọc trước khi reset
+      const deposit = cost * 0.5;
 
       const order = await createOrder({
         ...formData,
@@ -96,12 +96,10 @@ export default function BookingPage() {
         boxes: boxes,
       }, cost, deposit);
 
-      // Lưu data đơn hàng hiện tại và số tiền cọc để hiển thị lên Popup
       setCurrentOrderData(order);
       setCurrentDepositAmount(deposit);
       setShowQR(true);
       
-      // Reset form
       setFormData(EMPTY_FORM);
       setDeliveryCoords({ lat: null, lng: null });
       setBoxes(0);
@@ -113,13 +111,11 @@ export default function BookingPage() {
     }
   };
 
-  // Xử lý khi khách bấm "Đã hoàn thành cọc"
   const handleConfirmDeposit = () => {
     setShowQR(false);
     alert('Cảm ơn bạn! Vui lòng chờ Admin xác nhận. Đơn hàng của bạn đang được xử lý.');
   };
 
-  // Xử lý khi khách bấm "Hủy đặt thùng"
   const handleCancelOrder = async () => {
     if (!window.confirm('Bạn có chắc muốn hủy đơn hàng này? Thao tác không thể hoàn tác.')) return;
     try {
@@ -139,6 +135,7 @@ export default function BookingPage() {
         <h2 className="text-4xl font-extrabold text-agro-dark mb-8">Đặt thùng lạnh</h2>
 
         <div className="grid md:grid-cols-3 gap-8">
+          {/* CỘT TRÁI: FORM ĐẶT HÀNG */}
           <div className="md:col-span-2 bg-white rounded-2xl p-8 shadow-sm border border-gray-100">
             <form onSubmit={handleSubmit} className="space-y-6">
               {/* Thông tin khách hàng */}
@@ -215,7 +212,7 @@ export default function BookingPage() {
             </form>
           </div>
 
-          {/* Sidebar tóm tắt */}
+          {/* CỘT PHẢI: TÓM TẮT VÀ BẢNG NHIỆT ĐỘ */}
           <div className="space-y-6">
             <div className="bg-agro-dark text-white rounded-2xl p-6 shadow-md">
               <p className="text-sm opacity-80 mb-1 font-medium">Chi phí dự kiến</p>
@@ -241,6 +238,31 @@ export default function BookingPage() {
                 <p className="text-sm text-gray-500 font-medium">Chọn loại nông sản để xem cấu hình làm lạnh phù hợp</p>
               )}
             </div>
+
+            {/* BẢNG TRA CỨU NHIỆT ĐỘ NÔNG SẢN (Đã thêm lại) */}
+            <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
+              <h3 className="font-bold text-agro-dark mb-4 flex items-center gap-2">
+                📋 Bảng nhiệt độ bảo quản
+              </h3>
+              <div className="space-y-3 text-sm">
+                <div className="flex justify-between items-center py-2 border-b border-gray-50">
+                  <span className="font-medium text-gray-700">🍈 Sầu riêng</span>
+                  <span className="font-bold text-green-700 bg-green-50 px-2 py-1 rounded">13 – 15°C</span>
+                </div>
+                <div className="flex justify-between items-center py-2 border-b border-gray-50">
+                  <span className="font-medium text-gray-700">🍓 Dâu tây</span>
+                  <span className="font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded">-0.5 – 1°C</span>
+                </div>
+                <div className="flex justify-between items-center py-2 border-b border-gray-50">
+                  <span className="font-medium text-gray-700">🥑 Bơ</span>
+                  <span className="font-bold text-yellow-700 bg-yellow-50 px-2 py-1 rounded">4 – 13°C</span>
+                </div>
+                <div className="flex justify-between items-center py-2">
+                  <span className="font-medium text-gray-700">🥭 Xoài</span>
+                  <span className="font-bold text-orange-700 bg-orange-50 px-2 py-1 rounded">10 – 13°C</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -250,7 +272,6 @@ export default function BookingPage() {
         <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden relative">
             
-            {/* Header */}
             <div className="bg-agro-dark text-white p-5 flex justify-between items-center">
               <h3 className="font-bold text-lg flex items-center gap-2">
                 <CheckCircle className="w-5 h-5 text-agro-yellow" /> Đặt thùng thành công!
@@ -258,25 +279,21 @@ export default function BookingPage() {
             </div>
 
             <div className="p-6 space-y-5">
-              {/* Thông báo Hotline */}
               <div className="bg-red-50 text-red-600 p-4 rounded-xl text-sm font-bold flex items-start gap-3 border border-red-100">
                 <Phone className="w-5 h-5 flex-shrink-0 mt-0.5 animate-pulse" />
                 <p>Vui lòng gọi HOTLINE <span className="text-lg">1900 1234</span> để xác nhận đơn hàng trước khi tiến hành chuyển khoản cọc!</p>
               </div>
 
-              {/* Thông tin tiền cọc */}
               <div className="text-center bg-gray-50 rounded-xl p-4 border border-gray-100">
                 <p className="text-sm text-gray-500 font-semibold mb-1">Số tiền cần cọc (50%)</p>
-                {/* ĐÃ SỬA: Dùng currentDepositAmount thay vì tính lại từ cost */}
                 <p className="text-4xl font-extrabold text-agro-yellow">{currentDepositAmount.toLocaleString('vi-VN')}đ</p>
                 <p className="text-xs text-gray-400 mt-1">Tổng đơn: {currentOrderData.total_price?.toLocaleString('vi-VN')}đ</p>
               </div>
 
-              {/* Mã QR */}
               <div className="flex flex-col items-center">
                 <p className="text-sm font-bold text-gray-700 mb-2">Quét mã QR để chuyển khoản</p>
                 <div className="w-48 h-48 bg-white border-2 border-dashed border-gray-300 rounded-xl flex items-center justify-center overflow-hidden">
-                  {/* Thay src bằng tên file ảnh bạn đã up lên public, VD: /qr-code.png */}
+                  {/* Thay src bằng tên file ảnh bạn đã up lên public, VD: /qr-code.jpg */}
                   <img 
                     src="/qr-code.jpg" 
                     alt="Mã QR Ngân hàng" 
@@ -288,7 +305,6 @@ export default function BookingPage() {
               </div>
             </div>
 
-            {/* Nút hành động */}
             <div className="p-5 border-t border-gray-100 bg-gray-50 flex gap-3">
               <button onClick={handleCancelOrder} className="flex-1 border border-gray-300 hover:bg-white text-gray-700 font-bold py-3 rounded-xl">
                 Hủy đặt thùng
