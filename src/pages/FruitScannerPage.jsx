@@ -4,7 +4,6 @@ import { Camera, BrainCircuit, Loader2, ArrowLeft, ShieldAlert, ShieldCheck, Ref
 import { useNavigate } from 'react-router-dom';
 import { generateAdvice } from '../lib/visionAI';
 
-// Đường dẫn tới 2 thư mục model
 const MODEL_QUALITY_URL = "/tm-my-image-model/";
 const MODEL_TYPE_URL = "/tm-my-image-model%20(1)/"; 
 
@@ -56,20 +55,16 @@ export default function FruitScannerPage() {
         canvasRef.current.innerHTML = ''; 
         const canvas = webcamInstance.current.canvas;
         
-        // ÉP CSS TRỰC TIẾP BẰNG JS ĐỂ KHÔNG BỊ TAILWIND GHI ĐÈ
-        canvas.style.position = 'absolute';
-        canvas.style.top = '0';
-        canvas.style.left = '0';
+        // Cấu hình Canvas hiển thị đè lên trên
         canvas.style.width = '100%';
         canvas.style.height = '100%';
         canvas.style.objectFit = 'cover';
-        canvas.style.zIndex = '10';
         
         canvasRef.current.appendChild(canvas);
       }
     } catch (err) {
       console.error("Lỗi bật camera:", err);
-      alert("Không thể truy cập Camera. Vui lòng kiểm tra quyền truy cập hoặc dùng nút 'Tải ảnh lên'.");
+      alert("Không thể truy cập Camera. Vui lòng dùng nút 'Tải ảnh lên'.");
       setIsCameraOn(false);
     }
   };
@@ -86,6 +81,7 @@ export default function FruitScannerPage() {
   const processImage = async (imageElement) => {
     setIsScanning(true);
     try {
+      // AI Phân tích
       const predQuality = await modelQuality.predict(imageElement);
       let topQuality = predQuality[0];
       for (let i = 1; i < predQuality.length; i++) {
@@ -114,19 +110,27 @@ export default function FruitScannerPage() {
         capturedImage: imgData
       });
       
-      if (isCameraOn) stopCamera();
     } catch (error) {
-      console.error(error);
-      alert("Lỗi phân tích ảnh.");
+      console.error("Lỗi phân tích:", error);
+      alert("Lỗi phân tích hình ảnh.");
     } finally {
       setIsScanning(false);
+      if (isCameraOn) stopCamera(); // Tắt cam sau khi phân tích xong
     }
   };
 
   const handleAnalyze = async () => {
     if (!webcamInstance.current || !modelQuality || !modelType) return;
+    
+    // QUAN TRỌNG: Cập nhật khung hình mới nhất và đợi 1 nhịp (100ms) để lưu vào bộ nhớ trước khi phân tích
     webcamInstance.current.update();
-    await processImage(webcamInstance.current.canvas);
+    const currentCanvas = webcamInstance.current.canvas;
+    
+    setIsScanning(true); // Bật hiệu ứng loading
+    
+    setTimeout(() => {
+      processImage(currentCanvas);
+    }, 100);
   };
 
   const handleFileUpload = (e) => {
@@ -174,24 +178,26 @@ export default function FruitScannerPage() {
           
           <div className="mb-6 flex flex-col items-center">
             
-            {/* KHUNG CAMERA ĐÃ ĐƯỢC FIX CSS */}
+            {/* Khung chứa Camera (Đã cấu hình z-index để canvas nổi lên trên) */}
             <div className="w-[300px] h-[300px] bg-gray-900 rounded-2xl overflow-hidden relative shadow-inner">
               
-              {/* Ref chứa canvas */}
+              {/* Thẻ div chứa Canvas Camera - Nổi lên trên */}
               <div ref={canvasRef} className="absolute inset-0 z-10"></div>
               
-              {/* Lớp phủ (Chỉ hiện khi tắt cam hoặc có ảnh) */}
+              {/* Icon đen khi tắt cam (Chỉ hiện khi tắt cam) */}
               {!isCameraOn && !result && (
-                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center text-center text-gray-400">
+                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center text-center text-gray-400 pointer-events-none">
                   <Camera className="w-12 h-12 mx-auto mb-2 opacity-50" />
                   <p className="text-sm font-medium">Camera đang tắt</p>
                 </div>
               )}
 
+              {/* Ảnh chụp kết quả */}
               {result && (
                 <img src={result.capturedImage} alt="Captured" className="absolute inset-0 z-20 w-full h-full object-cover" />
               )}
 
+              {/* Hiệu ứng Loading */}
               {isScanning && (
                 <div className="absolute inset-0 z-30 bg-agro-dark/60 backdrop-blur-sm flex flex-col items-center justify-center text-white">
                   <Loader2 className="w-10 h-10 animate-spin text-agro-yellow mb-3" />
