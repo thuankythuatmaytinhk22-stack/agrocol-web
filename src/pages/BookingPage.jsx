@@ -51,9 +51,9 @@ export default function BookingPage() {
   // State cho thanh toán cọc
   const [showQR, setShowQR] = useState(false);
   const [currentOrderData, setCurrentOrderData] = useState(null);
+  const [currentDepositAmount, setCurrentDepositAmount] = useState(0); // Thêm state lưu tiền cọc
 
   const product = getProductInfo(formData.product_type);
-  const depositAmount = cost * 0.5; // 50%
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -85,6 +85,8 @@ export default function BookingPage() {
 
     setLoading(true);
     try {
+      const deposit = cost * 0.5; // Tính tiền cọc trước khi reset
+
       const order = await createOrder({
         ...formData,
         pickup_lat: HUB_COORDS.lat,
@@ -92,10 +94,11 @@ export default function BookingPage() {
         delivery_lat: deliveryCoords.lat,
         delivery_lng: deliveryCoords.lng,
         boxes: boxes,
-      }, cost, depositAmount);
+      }, cost, deposit);
 
-      // Lưu data đơn hàng hiện tại và mở Popup QR
+      // Lưu data đơn hàng hiện tại và số tiền cọc để hiển thị lên Popup
       setCurrentOrderData(order);
+      setCurrentDepositAmount(deposit);
       setShowQR(true);
       
       // Reset form
@@ -264,7 +267,8 @@ export default function BookingPage() {
               {/* Thông tin tiền cọc */}
               <div className="text-center bg-gray-50 rounded-xl p-4 border border-gray-100">
                 <p className="text-sm text-gray-500 font-semibold mb-1">Số tiền cần cọc (50%)</p>
-                <p className="text-4xl font-extrabold text-agro-yellow">{depositAmount.toLocaleString('vi-VN')}đ</p>
+                {/* ĐÃ SỬA: Dùng currentDepositAmount thay vì tính lại từ cost */}
+                <p className="text-4xl font-extrabold text-agro-yellow">{currentDepositAmount.toLocaleString('vi-VN')}đ</p>
                 <p className="text-xs text-gray-400 mt-1">Tổng đơn: {currentOrderData.total_price?.toLocaleString('vi-VN')}đ</p>
               </div>
 
@@ -274,7 +278,7 @@ export default function BookingPage() {
                 <div className="w-48 h-48 bg-white border-2 border-dashed border-gray-300 rounded-xl flex items-center justify-center overflow-hidden">
                   {/* Thay src bằng tên file ảnh bạn đã up lên public, VD: /qr-code.png */}
                   <img 
-                    src="/qr-code.png" 
+                    src="/qr-code.jpg" 
                     alt="Mã QR Ngân hàng" 
                     className="w-full h-full object-contain p-2" 
                     onError={(e) => { e.target.src = 'https://via.placeholder.com/200x200?text=Anh+QR+Code'; }}
