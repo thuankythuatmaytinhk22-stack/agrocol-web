@@ -4,9 +4,9 @@ import { Camera, BrainCircuit, Loader2, ArrowLeft, ShieldAlert, ShieldCheck, Ref
 import { useNavigate } from 'react-router-dom';
 import { generateAdvice } from '../lib/visionAI';
 
-// Đường dẫn tới 2 thư mục chứa model trong public
-const MODEL_QUALITY_URL = "/model_quality/";
-const MODEL_TYPE_URL = "/model_type/";
+// Đường dẫn tới 2 thư mục model trên GitHub của bạn
+const MODEL_QUALITY_URL = "/tm-my-image-model/";
+const MODEL_TYPE_URL = "/tm-my-image-model%20(1)/"; // Dấu cách đổi thành %20
 
 export default function FruitScannerPage() {
   const navigate = useNavigate();
@@ -38,7 +38,7 @@ export default function FruitScannerPage() {
         setIsLoadingModels(false);
       } catch (error) {
         console.error("Lỗi load model:", error);
-        alert("Không thể tải mô hình AI. Hãy kiểm tra lại 2 thư mục model_quality và model_type trong public.");
+        alert("Không thể tải mô hình AI. Hãy chắc chắn bạn đã copy thư mục model vào public và cấu hình vercel.json đúng.");
       }
     };
     loadModels();
