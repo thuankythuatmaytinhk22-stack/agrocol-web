@@ -1,329 +1,209 @@
-import { useState, useEffect } from 'react';
-import { supabase } from '../../lib/supabaseClient';
-import { Route, AlertTriangle, Truck, MapPin, BrainCircuit, X } from 'lucide-react';
-import { simulateColdTelemetry } from '../../lib/coldChain';
-import { optimizeRoutes, stopKindLabel } from '../../lib/routeOptimizer';
-import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
+import { matchProduct } from './coldChain';
 
-const HUB_COORDS = { lat: 12.6662, lng: 108.0382 };
-
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-});
-
-const createIcon = (color, label) => {
-  return L.divIcon({
-    className: 'custom-marker',
-    html: `<div style="background:${color}; color:white; width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:12px; border:3px solid white; box-shadow:0 2px 6px rgba(0,0,0,0.3);">${label}</div>`,
-    iconSize: [32, 32],
-    iconAnchor: [16, 16],
-  });
+const HUB = { 
+  name: 'Kho lạnh AgroCold - 123 Lê Duẩn, TP. Buôn Ma Thuột', 
+  lat: 12.6662, 
+  lng: 108.0382 
 };
+const AVG_KMH = 42;
 
-export default function DispatchPage() {
-  const [orders, setOrders] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [plan, setPlan] = useState(null);
-  const [selectedDate, setSelectedDate] = useState(
-    new Date().toISOString().split('T')[0]
-  );
-  const [routePaths, setRoutePaths] = useState({});
-  const [loadingRoutes, setLoadingRoutes] = useState(false);
-  
-  // State cho khung Ghi chú
-  const [showNotesModal, setShowNotesModal] = useState(false);
+function haversineKm(a, b) {
+  const R = 6371;
+  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
+  const s =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((a.lat * Math.PI) / 180) * Math.cos((b.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
 
-  useEffect(() => {
-    fetchOrders();
-  }, []);
+function routeStats(points) {
+  let km = 0;
+  for (let i = 1; i < points.length; i += 1) km += haversineKm(points[i - 1], points[i]);
+  const minutes = (km / AVG_KMH) * 60;
+  return { km: Number(km.toFixed(1)), minutes: Math.round(minutes) };
+}
 
-  const fetchOrders = async () => {
-    try {
-      await supabase
-        .from('orders')
-        .update({ 
-          pickup_lat: HUB_COORDS.lat, 
-          pickup_lng: HUB_COORDS.lng,
-          pickup_address: 'Kho lạnh AgroCold - 123 Lê Duẩn, TP. Buôn Ma Thuột, Đắk Lắk'
-        })
-        .not('pickup_lat', 'eq', HUB_COORDS.lat); 
-    } catch (err) {
-      console.error('Lỗi tự động cập nhật địa chỉ Hub:', err);
-    }
+function buildStops(orders) {
+  return orders.flatMap((order) => {
+    const product = matchProduct(order.product_type);
+    const pickup = { name: HUB.name, lat: HUB.lat, lng: HUB.lng };
+    const delivery = (order.delivery_lat && order.delivery_lng)
+      ? { name: order.delivery_address || 'Điểm giao hàng', lat: order.delivery_lat, lng: order.delivery_lng }
+      : { name: order.delivery_address || 'Chưa xác định', lat: HUB.lat + 0.1, lng: HUB.lng + 0.1 };
 
-    const { data } = await supabase
-      .from('orders')
-      .select('*')
-      .order('created_at', { ascending: false });
-    if (data) setOrders(data);
-    setLoading(false);
-  };
+    return [
+      { id: `${order.id}-p`, order, kind: 'pickup', product, label: pickup.name, lat: pickup.lat, lng: pickup.lng, shelfHours: product.shelfHours },
+      { id: `${order.id}-d`, order, kind: 'delivery', product, label: delivery.name, lat: delivery.lat, lng: delivery.lng, shelfHours: product.shelfHours },
+    ];
+  });
+}
 
-  const fetchRealRoutes = async (vehicles) => {
-    setLoadingRoutes(true);
-    const newRoutePaths = {};
+function greedyRoute(stops) {
+  const picked = new Set();
+  const remaining = [...stops];
+  const path = [{ ...HUB, kind: 'hub', label: HUB.name, id: 'hub' }];
+  let current = HUB;
 
-    await Promise.all(
-      vehicles.map(async (vehicle) => {
-        try {
-          const coords = vehicle.path.map((p) => `${p.lng},${p.lat}`).join(';');
-          const res = await fetch(
-            `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`
-          );
-          const data = await res.json();
-          
-          if (data.routes && data.routes[0]) {
-            const roadPath = data.routes[0].geometry.coordinates.map((c) => [c[1], c[0]]);
-            newRoutePaths[vehicle.id] = roadPath;
-          }
-        } catch (err) {
-          console.error(`Lỗi lấy đường đi cho ${vehicle.vehicleName}:`, err);
-          newRoutePaths[vehicle.id] = vehicle.path.map((p) => [p.lat, p.lng]);
+  while (remaining.length) {
+    const feasible = remaining.filter((s) => s.kind === 'pickup' || picked.has(s.order.id));
+    feasible.sort((a, b) => {
+      const da = haversineKm(current, a);
+      const db = haversineKm(current, b);
+      const perishA = a.kind === 'delivery' ? (80 - a.shelfHours) * 0.35 : 0;
+      const perishB = b.kind === 'delivery' ? (80 - b.shelfHours) * 0.35 : 0;
+      return da - perishA - (db - perishB);
+    });
+    const next = feasible[0] || remaining[0];
+    path.push(next);
+    current = next;
+    if (next.kind === 'pickup') picked.add(next.order.id);
+    const idx = remaining.findIndex((s) => s.id === next.id);
+    remaining.splice(idx, 1);
+  }
+  return path;
+}
+
+function twoOptImprove(path) {
+  let improved = true;
+  let bestPath = [...path];
+  let bestDist = routeStats(bestPath).km;
+
+  while (improved) {
+    improved = false;
+    for (let i = 1; i < bestPath.length - 2; i++) {
+      for (let j = i + 1; j < bestPath.length - 1; j++) {
+        const newPath = [
+          ...bestPath.slice(0, i),
+          ...bestPath.slice(i, j + 1).reverse(),
+          ...bestPath.slice(j + 1),
+        ];
+        const newDist = routeStats(newPath).km;
+        if (newDist < bestDist) {
+          bestPath = newPath;
+          bestDist = newDist;
+          improved = true;
         }
-      })
-    );
-
-    setRoutePaths(newRoutePaths);
-    setLoadingRoutes(false);
-  };
-
-  const handleOptimize = () => {
-    const newPlan = optimizeRoutes(orders, selectedDate);
-    setPlan(newPlan);
-    if (!newPlan.empty) {
-      fetchRealRoutes(newPlan.vehicles);
+      }
     }
-  };
+  }
+  return bestPath;
+}
 
-  const shippingAlerts = orders
-    .filter((o) => o.status === 'shipping' || o.status === 'packed')
-    .map((o) => ({ order: o, tel: simulateColdTelemetry(o) }))
-    .filter((x) => x.tel.level !== 'ok');
+function fifoRoute(stops) {
+  const path = [{ ...HUB, kind: 'hub', label: HUB.name, id: 'hub' }];
+  const byOrder = [];
+  stops.forEach((s) => {
+    const g = byOrder.find((x) => x[0]?.order.id === s.order.id);
+    if (g) g.push(s);
+    else byOrder.push([s]);
+  });
+  byOrder.forEach((pair) => {
+    const pickup = pair.find((p) => p.kind === 'pickup');
+    const delivery = pair.find((p) => p.kind === 'delivery');
+    if (pickup) path.push(pickup);
+    if (delivery) path.push(delivery);
+  });
+  return path;
+}
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-12 h-12 border-4 border-agro-yellow border-t-transparent rounded-full animate-spin"></div>
-      </div>
-    );
+export function filterOrdersByDate(orders, dateStr) {
+  if (!dateStr) return orders;
+  return orders.filter((o) => {
+    if (!o.send_date) return false;
+    const orderDate = o.send_date.split('T')[0];
+    return orderDate === dateStr;
+  });
+}
+
+// Hàm tìm các đơn có thể ghép chuyến
+function findMergeableOrders(orders) {
+  const mergeNotes = [];
+  
+  for (let i = 0; i < orders.length; i++) {
+    for (let j = i + 1; j < orders.length; j++) {
+      const o1 = orders[i];
+      const o2 = orders[j];
+      
+      // Điều kiện 1: Tổng thùng <= 12
+      const totalBoxes = (o1.boxes || 0) + (o2.boxes || 0);
+      if (totalBoxes > 12) continue;
+
+      // Điều kiện 2: Giờ đặt cách nhau <= 4h
+      if (o1.pickup_time && o2.pickup_time && o1.send_date === o2.send_date) {
+        const t1 = new Date(`${o1.send_date}T${o1.pickup_time}`);
+        const t2 = new Date(`${o2.send_date}T${o2.pickup_time}`);
+        const diffHours = Math.abs(t1 - t2) / 36e5;
+        if (diffHours > 4) continue;
+      }
+
+      // Điều kiện 3: Khoảng cách 2 điểm giao < 50km (bán kính 0.5 độ)
+      if (o1.delivery_lat && o1.delivery_lng && o2.delivery_lat && o2.delivery_lng) {
+        const dist = haversineKm(
+          { lat: o1.delivery_lat, lng: o1.delivery_lng },
+          { lat: o2.delivery_lat, lng: o2.delivery_lng }
+        );
+        if (dist > 50) continue;
+      }
+
+      // Nếu thỏa mãn hết -> Ghi chú lại
+      mergeNotes.push({
+        id: `merge-${o1.id}-${o2.id}`,
+        order1: o1.order_code,
+        order2: o2.order_code,
+        totalBoxes,
+        message: `Đơn ${o1.order_code} và ${o2.order_code} có thể ghép chung 1 xe. Tổng cộng ${totalBoxes} thùng.`
+      });
+    }
+  }
+  return mergeNotes;
+}
+
+export function optimizeRoutes(orders = [], filterDate = null) {
+  const filtered = filterDate ? filterOrdersByDate(orders, filterDate) : orders;
+  const active = filtered.filter((o) => ['pending', 'packed', 'shipping'].includes(o.status));
+
+  if (!active.length) {
+    return { empty: true, vehicles: [], totalSavedKm: 0, totalSavedMinutes: 0, mergeNotes: [] };
   }
 
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-extrabold text-agro-dark flex items-center gap-2">
-            <Route className="w-6 h-6" />
-            Điều phối AI
-          </h2>
-          <p className="text-sm text-gray-500 mt-1">
-            Tự động gom nhóm đơn hàng và tối ưu lộ trình trên thực tế
-          </p>
-        </div>
-        <div className="flex flex-col sm:flex-row gap-3">
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            className="border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-agro-dark text-agro-dark font-medium text-sm"
-          />
-          <button
-            onClick={handleOptimize}
-            disabled={loadingRoutes}
-            className="bg-agro-yellow hover:bg-yellow-500 text-agro-dark font-bold px-6 py-3 rounded-xl whitespace-nowrap transition-colors text-sm disabled:opacity-50"
-          >
-            {loadingRoutes ? 'Đang tính toán...' : 'Tính tuyến tối ưu'}
-          </button>
-        </div>
-      </div>
+  const mergeNotes = findMergeableOrders(active);
+  const groupOrders = active; 
 
-      {shippingAlerts.length > 0 && (
-        <div className="space-y-3">
-          <h3 className="font-bold text-agro-dark flex items-center gap-2">
-            <AlertTriangle className="w-5 h-5 text-amber-500" />
-            Cảnh báo nhiệt độ ({shippingAlerts.length})
-          </h3>
-          {shippingAlerts.map(({ order, tel }) => (
-            <div key={order.id} className="bg-amber-50 border border-amber-100 rounded-2xl p-4 flex items-start gap-3">
-              <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="font-bold text-agro-dark text-sm">
-                  Cảnh báo thùng {order.order_code} có xu hướng tăng lên {tel.predicted30}°C.
-                </p>
-                <p className="text-sm text-gray-600 font-medium mt-1">{tel.advice}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+  const stops = buildStops(groupOrders);
+  const oldPath = fifoRoute(stops);
+  const greedyPath = greedyRoute(stops);
+  const newPath = twoOptImprove(greedyPath);
 
-      {plan && !plan.empty && (
-        <div className="space-y-6">
-          
-          {/* HIỂN THỊ GHI CHÚ GHÉP CHUYẾN (Nếu có) */}
-          {plan.mergeNotes && plan.mergeNotes.length > 0 && (
-            <div className="bg-blue-50 border-l-4 border-blue-500 rounded-r-2xl p-5 shadow-sm animate-in fade-in slide-in-from-top-4">
-              <div className="flex items-start gap-3">
-                <BrainCircuit className="w-6 h-6 text-blue-600 flex-shrink-0 mt-0.5" />
-                <div className="flex-1">
-                  <h3 className="font-bold text-blue-900 text-lg mb-1">
-                    AI gợi ý ghép chuyến ({plan.mergeNotes.length})
-                  </h3>
-                  <p className="text-sm text-blue-700 mb-3">
-                    Các đơn hàng này có cùng tuyến đường, giờ đặt gần nhau và tổng số thùng &le; 12. Bạn có thể ghép chung 1 xe để tiết kiệm chi phí.
-                  </p>
-                  <ul className="space-y-2">
-                    {plan.mergeNotes.map((note) => (
-                      <li key={note.id} className="bg-white p-3 rounded-lg border border-blue-100 text-sm text-gray-700 shadow-sm flex items-start gap-2">
-                        <div className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-1.5 flex-shrink-0"></div>
-                        {note.message}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            </div>
-          )}
+  const oldStats = routeStats(oldPath);
+  const newStats = routeStats(newPath);
 
-          <div className="bg-agro-dark text-white rounded-2xl p-6 flex items-center justify-between">
-            <div>
-              <p className="text-sm text-white/70 font-medium">Tổng tiết kiệm so với FIFO</p>
-              <p className="text-4xl font-extrabold text-agro-yellow mt-1">
-                {plan.totalSavedMinutes} phút
-              </p>
-              <p className="text-sm mt-1">{plan.totalSavedKm} km · {plan.count} đơn · {plan.vehicles.length} xe</p>
-            </div>
-            <Truck className="w-16 h-16 text-white/20" />
-          </div>
+  const savedKm = Math.max(0, oldStats.km - newStats.km);
+  const savedMinutes = Math.max(0, oldStats.minutes - newStats.minutes);
 
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-            <div className="p-4 border-b border-gray-100 flex justify-between items-center">
-              <h3 className="font-bold text-agro-dark flex items-center gap-2">
-                <MapPin className="w-5 h-5" />
-                Bản đồ điều phối
-              </h3>
-            </div>
-            <div className="h-[600px] w-full">
-              <MapContainer 
-                center={[plan.vehicles[0].path[0].lat, plan.vehicles[0].path[0].lng]} 
-                zoom={6} 
-                style={{ height: '100%', width: '100%' }}
-              >
-                <TileLayer
-                  attribution='&copy; <a href="https://www.maptiler.com/copyright/">MapTiler</a>'
-                  url={`https://api.maptiler.com/maps/outdoor-v2/{z}/{x}/{y}.png?key=0kgv1m784H4kd86re01y`}
-                />
-                
-                {plan.vehicles.map((vehicle) => {
-                  const path = routePaths[vehicle.id] || vehicle.path.map(p => [p.lat, p.lng]);
-                  return (
-                    <Polyline
-                      key={vehicle.id}
-                      positions={path}
-                      pathOptions={{ 
-                        color: vehicle.color, 
-                        weight: 5, 
-                        opacity: 0.8,
-                      }}
-                    />
-                  );
-                })}
+  const vehicles = [{
+    id: `vehicle-1`,
+    vehicleName: `Tuyến Xe Tải`,
+    orders: groupOrders,
+    path: newPath,
+    stats: newStats,
+    savedKm,
+    savedMinutes,
+    color: '#0F4C3A',
+  }];
 
-                {plan.vehicles.map((vehicle) => 
-                  vehicle.path.map((p, i) => (
-                    <Marker 
-                      key={`${vehicle.id}-${p.id}`} 
-                      position={[p.lat, p.lng]} 
-                      icon={createIcon(vehicle.color, i === 0 ? 'K' : i)}
-                    >
-                      <Popup>
-                        <div className="font-sans">
-                          <p className="font-bold" style={{ color: vehicle.color }}>{vehicle.vehicleName}</p>
-                          <p className="font-semibold text-agro-dark mt-1">{stopKindLabel(p.kind)}</p>
-                          <p className="text-xs text-gray-600">{p.label}</p>
-                        </div>
-                      </Popup>
-                    </Marker>
-                  ))
-                )}
-              </MapContainer>
-            </div>
-          </div>
+  return {
+    empty: false,
+    count: active.length,
+    vehicles: vehicles,
+    totalSavedKm: Number(savedKm.toFixed(1)),
+    totalSavedMinutes: savedMinutes,
+    mergeNotes 
+  };
+}
 
-          <div className="space-y-4">
-            {plan.vehicles.map((vehicle) => (
-              <div key={vehicle.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                <div 
-                  className="px-6 py-4 border-b border-gray-100 flex items-center justify-between"
-                  style={{ backgroundColor: `${vehicle.color}10` }}
-                >
-                  <div className="flex items-center gap-3">
-                    <div 
-                      className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold"
-                      style={{ backgroundColor: vehicle.color }}
-                    >
-                      <Truck className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-agro-dark text-lg">{vehicle.vehicleName}</h3>
-                      <p className="text-xs text-gray-500">{vehicle.orders.length} đơn hàng</p>
-                    </div>
-                  </div>
-                  <div className="flex gap-4 text-sm">
-                    <div className="text-right">
-                      <p className="text-xs text-gray-500">Quãng đường</p>
-                      <p className="font-bold text-agro-dark">{vehicle.stats.km} km</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs text-gray-500">Thời gian</p>
-                      <p className="font-bold text-agro-dark">{vehicle.stats.minutes} phút</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="p-6">
-                  <ol className="space-y-3 relative before:absolute before:left-[15px] before:top-2 before:bottom-2 before:w-0.5 before:bg-gray-200">
-                    {vehicle.path.map((p, i) => (
-                      <li key={p.id} className="relative pl-10">
-                        <div 
-                          className="absolute left-0 top-1 w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs z-10 border-2 border-white shadow-sm"
-                          style={{ backgroundColor: vehicle.color }}
-                        >
-                          {i === 0 ? <Truck className="w-4 h-4" /> : i + 1}
-                        </div>
-                        <div className="bg-gray-50 rounded-lg p-3 border border-gray-100">
-                          <p className="font-semibold text-sm text-agro-dark">{stopKindLabel(p.kind)}</p>
-                          <p className="text-xs text-gray-600 mt-0.5">{p.label}</p>
-                          {p.product && (
-                            <p className="text-[10px] text-green-700 font-medium mt-1">
-                              {p.product.name} · {p.shelfHours}h
-                            </p>
-                          )}
-                        </div>
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {!plan && (
-        <div className="bg-white rounded-2xl p-12 border border-gray-100 shadow-sm text-center">
-          <Route className="w-16 h-16 text-gray-300 mx-auto mb-3" />
-          <h3 className="font-bold text-agro-dark mb-1">Chưa có lộ trình nào được tính</h3>
-          <p className="text-sm text-gray-500 mb-4 max-w-md mx-auto">
-            Chọn ngày và bấm "Tính tuyến tối ưu". Hệ thống sẽ tự động gom nhóm đơn, tìm các đơn có thể ghép chuyến và vẽ lộ trình thực tế bằng AI.
-          </p>
-        </div>
-      )}
-    </div>
-  );
+export function stopKindLabel(kind) {
+  if (kind === 'hub') return 'Kho Hub';
+  if (kind === 'pickup') return 'Lấy hàng tại Hub';
+  return 'Giao hàng';
 }
