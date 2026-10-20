@@ -14,7 +14,8 @@ import {
   ChevronRight,
   Activity,
   DollarSign,
-  Brain, // <-- THÊM ICON BỘ NÃO
+  Brain,
+  ShieldCheck, // <-- Đã thêm icon cho Đánh giá chất lượng
 } from 'lucide-react';
 import { countUnresolvedAlerts, subscribeToAlerts } from '../../services/iotService';
 
@@ -55,7 +56,8 @@ const menuGroups = [
     title: 'BÁO CÁO',
     items: [
       { name: 'Doanh thu', path: '/admin/revenue', icon: DollarSign },
-      { name: 'AI Dự báo', path: '/admin/forecast', icon: Brain }, // <-- THÊM MENU MỚI Ở ĐÂY
+      { name: 'AI Dự báo', path: '/admin/forecast', icon: Brain },
+      { name: 'Đánh giá chất lượng', path: '/admin/quality', icon: ShieldCheck }, // <-- Menu mới
       { name: 'Thống kê', path: '/admin/reports', icon: BarChart3 },
       { name: 'Cài đặt', path: '/admin/settings', icon: Settings },
     ],
