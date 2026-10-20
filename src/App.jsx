@@ -18,6 +18,7 @@ import DispatchPage from './pages/admin/DispatchPage';
 import BoxesPage from './pages/admin/BoxesPage';
 import IoTPage from './pages/admin/IoTPage';
 import RevenuePage from './pages/admin/RevenuePage';
+import ForecastPage from './pages/admin/ForecastPage'; // <-- IMPORT TRANG DỰ BÁO AI
 
 // Partner Pages
 import PartnerLoginPage from './pages/PartnerLoginPage';
@@ -58,6 +59,7 @@ function App() {
           <Route path="boxes" element={<BoxesPage />} />
           <Route path="iot" element={<IoTPage />} />
           <Route path="revenue" element={<RevenuePage />} />
+          <Route path="forecast" element={<ForecastPage />} /> {/* <-- THÊM ROUTE DỰ BÁO */}
           <Route path="reports" element={<ComingSoon title="Báo cáo & Thống kê" />} />
           <Route path="settings" element={<ComingSoon title="Cài đặt hệ thống" />} />
         </Route>

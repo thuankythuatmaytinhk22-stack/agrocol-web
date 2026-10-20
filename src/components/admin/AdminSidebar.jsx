@@ -14,6 +14,7 @@ import {
   ChevronRight,
   Activity,
   DollarSign,
+  Brain, // <-- THÊM ICON BỘ NÃO
 } from 'lucide-react';
 import { countUnresolvedAlerts, subscribeToAlerts } from '../../services/iotService';
 
@@ -54,6 +55,7 @@ const menuGroups = [
     title: 'BÁO CÁO',
     items: [
       { name: 'Doanh thu', path: '/admin/revenue', icon: DollarSign },
+      { name: 'AI Dự báo', path: '/admin/forecast', icon: Brain }, // <-- THÊM MENU MỚI Ở ĐÂY
       { name: 'Thống kê', path: '/admin/reports', icon: BarChart3 },
       { name: 'Cài đặt', path: '/admin/settings', icon: Settings },
     ],
