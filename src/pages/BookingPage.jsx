@@ -1,8 +1,15 @@
 import { useState } from 'react';
 import { createOrder } from '../services/orderService';
-import { CheckCircle } from 'lucide-react';
-import { calcBoxes, calcCost, matchProduct } from '../lib/coldChain';
+import { CheckCircle, MapPin, AlertCircle } from 'lucide-react';
 import LocationPicker from '../components/map/LocationPicker';
+// import { calcBoxes, calcCost, matchProduct } from '../lib/coldChain'; // Bỏ qua hàm tính toán cũ để tự viết lại
+
+const PRICE_PER_BOX = 400000; // Giá mới: 400.000đ / thùng
+const WEIGHT_PER_BOX = 350;   // Quy cách mới: 350kg / thùng
+
+// Địa chỉ Hub cố định
+const HUB_ADDRESS = 'Kho lạnh AgroCold - 123 Lê Duẩn, TP. Buôn Ma Thuột, Đắk Lắk';
+const HUB_COORDS = { lat: 12.6662, lng: 108.0382 };
 
 const EMPTY_FORM = {
   customer_name: '',
@@ -11,8 +18,31 @@ const EMPTY_FORM = {
   weight: '',
   send_date: '',
   pickup_time: '',
-  pickup_address: '',
   delivery_address: '',
+  hub_address: HUB_ADDRESS, // Thêm trường này
+};
+
+// Hàm tính số thùng (Làm tròn lên)
+const customCalcBoxes = (weight) => {
+  const w = parseFloat(weight) || 0;
+  if (w <= 0) return 0;
+  return Math.ceil(w / WEIGHT_PER_BOX);
+};
+
+// Hàm tính tiền
+const customCalcCost = (boxes) => {
+  return boxes * PRICE_PER_BOX;
+};
+
+// Hàm lấy thông tin nhiệt độ (Đề phòng file coldChain bị lỗi, tôi copy tạm logic vào đây)
+const getProductInfo = (type) => {
+  const products = {
+    'Sầu riêng': { minTemp: 13, maxTemp: 15, name: 'Sầu riêng', shelfHours: 48, note: 'Bảo quản lạnh sâu, tránh sốc nhiệt.' },
+    'Dâu tây': { minTemp: -0.5, maxTemp: 1, name: 'Dâu tây', shelfHours: 24, note: 'Cần độ ẩm cao, tránh dập nát.' },
+    'Bơ': { minTemp: 4, maxTemp: 13, name: 'Bơ', shelfHours: 72, note: 'Bảo quản mát, tránh ánh sáng trực tiếp.' },
+    'Xoài': { minTemp: 10, maxTemp: 13, name: 'Xoài', shelfHours: 60, note: 'Nhiệt độ phù hợp để xoài chín đều.' },
+  };
+  return products[type] || { minTemp: '--', maxTemp: '--', name: 'Chưa xác định', shelfHours: 0, note: 'Chọn loại nông sản để xem cấu hình.' };
 };
 
 function takeBookingDraft() {
@@ -36,11 +66,10 @@ export default function BookingPage() {
       customer_phone: draft.customer_phone || '',
       product_type: draft.product_type || '',
       weight: draft.weight || '',
-      pickup_address: draft.pickup_address || '',
       delivery_address: draft.delivery_address || '',
     };
-    const boxes = calcBoxes(draft.weight);
-    return { formData, boxes, cost: calcCost(boxes) };
+    const boxes = customCalcBoxes(draft.weight);
+    return { formData, boxes, cost: customCalcCost(boxes) };
   });
 
   const [formData, setFormData] = useState(boot.formData);
@@ -49,44 +78,60 @@ export default function BookingPage() {
   const [successBoxes, setSuccessBoxes] = useState(0);
   const [isSuccess, setIsSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState(''); // State báo lỗi thời gian
 
-  const [pickupCoords, setPickupCoords] = useState({ lat: null, lng: null });
   const [deliveryCoords, setDeliveryCoords] = useState({ lat: null, lng: null });
 
-  const product = matchProduct(formData.product_type);
+  const product = getProductInfo(formData.product_type);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
+    setErrorMsg(''); // Xóa lỗi khi người dùng thay đổi input
+
     if (name === 'weight') {
-      const calculatedBoxes = calcBoxes(value);
+      const calculatedBoxes = customCalcBoxes(value);
       setBoxes(calculatedBoxes);
-      setCost(calcCost(calculatedBoxes));
+      setCost(customCalcCost(calculatedBoxes));
     }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!pickupCoords.lat || !deliveryCoords.lat) {
-      alert('Bạn cần chọn vị trí lấy hàng và giao hàng trên bản đồ!');
+    // 1. Kiểm tra thời gian quá khứ
+    if (formData.send_date && formData.pickup_time) {
+      const selectedDateTime = new Date(`${formData.send_date}T${formData.pickup_time}`);
+      const now = new Date();
+      if (selectedDateTime < now) {
+        setErrorMsg('Thời gian gửi hàng không hợp lệ. Vui lòng chọn thời gian trong tương lai!');
+        return;
+      }
+    }
+
+    // 2. Kiểm tra điểm giao hàng
+    if (!deliveryCoords.lat) {
+      alert('Bạn cần chọn vị trí giao hàng trên bản đồ!');
       return;
     }
 
     setLoading(true);
     try {
       const currentBoxes = boxes;
+      
+      // Gọi API tạo đơn (Lưu ý: bạn cần đảm bảo hàm createOrder có nhận hub_address)
       await createOrder({
         ...formData,
-        pickup_lat: pickupCoords.lat,
-        pickup_lng: pickupCoords.lng,
+        pickup_lat: HUB_COORDS.lat, // Gán cứng tọa độ Hub
+        pickup_lng: HUB_COORDS.lng,
         delivery_lat: deliveryCoords.lat,
         delivery_lng: deliveryCoords.lng,
+        boxes: currentBoxes, // Ghi đè số thùng tính toán được
       });
+
       setSuccessBoxes(currentBoxes);
       setIsSuccess(true);
       setFormData(EMPTY_FORM);
-      setPickupCoords({ lat: null, lng: null });
       setDeliveryCoords({ lat: null, lng: null });
       setBoxes(0);
       setCost(0);
@@ -204,26 +249,23 @@ export default function BookingPage() {
                     onChange={handleChange}
                     required
                     className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-agro-dark outline-none text-agro-dark font-medium"
-                    placeholder="VD: 650"
+                    placeholder="VD: 700"
                   />
                 </div>
               </div>
 
-              {/* Điểm lấy hàng */}
+              {/* Hub Cố Định */}
               <div className="border-t border-gray-100 pt-6">
-                <LocationPicker
-                  label="📍 Điểm lấy hàng"
-                  value={pickupCoords}
-                  onChange={(coords) => {
-                    setPickupCoords(coords);
-                    if (coords.address) {
-                      setFormData((prev) => ({
-                        ...prev,
-                        pickup_address: coords.address,
-                      }));
-                    }
-                  }}
-                />
+                <label className="block text-sm font-semibold mb-2 text-agro-dark flex items-center gap-2">
+                  <MapPin className="w-4 h-4 text-red-500" /> Điểm lấy hàng (Kho Hub)
+                </label>
+                <div className="bg-blue-50 text-blue-800 text-sm font-medium p-4 rounded-xl border border-blue-100 flex items-start gap-3">
+                  <MapPin className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-bold mb-1">{HUB_ADDRESS}</p>
+                    <p className="text-xs opacity-80">Mọi nông sản sẽ được vận chuyển về kho này để đóng thùng và xử lý đông lạnh (PCM).</p>
+                  </div>
+                </div>
               </div>
 
               {/* Điểm giao hàng */}
@@ -242,6 +284,13 @@ export default function BookingPage() {
                   }}
                 />
               </div>
+
+              {/* Thông báo lỗi (nếu có) */}
+              {errorMsg && (
+                <div className="bg-red-50 text-red-600 p-4 rounded-xl flex items-center gap-2 font-medium">
+                  <AlertCircle className="w-5 h-5" /> {errorMsg}
+                </div>
+              )}
 
               {/* Nút submit */}
               <div className="border-t border-gray-100 pt-6">
@@ -279,6 +328,9 @@ export default function BookingPage() {
               <p className="text-sm opacity-80 font-medium">Số thùng ước tính</p>
               <p className="text-2xl font-bold text-white">
                 {boxes > 0 ? `${boxes} thùng` : 'Chưa xác định'}
+              </p>
+              <p className="text-xs opacity-60 mt-2 italic">
+                * Quy cách: {WEIGHT_PER_BOX}kg / thùng. Làm tròn lên.
               </p>
             </div>
 
