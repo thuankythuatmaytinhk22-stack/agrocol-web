@@ -19,7 +19,6 @@ export default function FruitScannerPage() {
   const [isScanning, setIsScanning] = useState(false);
   const [result, setResult] = useState(null);
   
-  // Sử dụng ref trực tiếp cho canvas thay vì div
   const canvasRef = useRef(null);
   const webcamInstance = useRef(null);
   const fileInputRef = useRef(null);
@@ -49,19 +48,23 @@ export default function FruitScannerPage() {
 
     try {
       const flip = true; 
+      // Kích thước gốc của webcam
       webcamInstance.current = new tmImage.Webcam(300, 300, flip);
       await webcamInstance.current.setup();
       await webcamInstance.current.play();
       
-      // Gắn canvas trực tiếp vào ref
+      // Gắn thẻ canvas trực tiếp vào DOM thông qua ref
       if (canvasRef.current) {
-        canvasRef.current.innerHTML = ''; // Xóa cũ
-        canvasRef.current.appendChild(webcamInstance.current.canvas);
+        canvasRef.current.innerHTML = ''; 
+        const canvas = webcamInstance.current.canvas;
         
-        // Ép CSS cho canvas hiển thị đầy khung
-        webcamInstance.current.canvas.style.width = '100%';
-        webcamInstance.current.canvas.style.height = '100%';
-        webcamInstance.current.canvas.style.objectFit = 'cover';
+        // Ép CSS cho canvas luôn phủ kín khung và không bị bóp méo
+        canvas.style.width = '100%';
+        canvas.style.height = '100%';
+        canvas.style.objectFit = 'cover';
+        canvas.style.borderRadius = '1rem'; // Bo góc cho đẹp
+        
+        canvasRef.current.appendChild(canvas);
       }
     } catch (err) {
       console.error("Lỗi bật camera:", err);
@@ -99,7 +102,6 @@ export default function FruitScannerPage() {
         topQuality.className, topQuality.probability
       );
       
-      // Lấy ảnh base64 để hiển thị lại
       const imgData = imageElement.tagName === 'CANVAS' 
         ? imageElement.toDataURL() 
         : imageElement.src;
@@ -126,7 +128,6 @@ export default function FruitScannerPage() {
     await processImage(webcamInstance.current.canvas);
   };
 
-  // Xử lý khi người dùng chọn ảnh từ máy tính (Dự phòng nếu camera lỗi)
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -171,12 +172,13 @@ export default function FruitScannerPage() {
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
           
           <div className="mb-6 flex flex-col items-center">
-            {/* Khung chứa Camera/Ảnh */}
-            <div className="w-[300px] h-[300px] bg-gray-900 rounded-2xl overflow-hidden relative shadow-inner">
+            {/* KHUNG CHỨA CAMERA - Đã sửa lỗi hiển thị */}
+            <div className="w-[300px] h-[300px] bg-gray-900 rounded-2xl overflow-hidden relative shadow-inner flex items-center justify-center">
               
-              {/* Thẻ div chứa canvas (Luôn tồn tại để gắn webcam vào) */}
+              {/* Ref này sẽ chứa thẻ <canvas> của Camera */}
               <div ref={canvasRef} className={`w-full h-full ${isCameraOn ? 'block' : 'hidden'}`}></div>
               
+              {/* Hiển thị icon khi tắt Camera */}
               {!isCameraOn && !result && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-center text-gray-400">
                   <Camera className="w-12 h-12 mx-auto mb-2 opacity-50" />
@@ -184,10 +186,12 @@ export default function FruitScannerPage() {
                 </div>
               )}
 
+              {/* Hiển thị ảnh đã chụp khi có kết quả */}
               {result && (
                 <img src={result.capturedImage} alt="Captured" className="absolute inset-0 w-full h-full object-cover" />
               )}
 
+              {/* Hiệu ứng đang quét */}
               {isScanning && (
                 <div className="absolute inset-0 bg-agro-dark/60 backdrop-blur-sm flex flex-col items-center justify-center text-white z-10">
                   <Loader2 className="w-10 h-10 animate-spin text-agro-yellow mb-3" />
