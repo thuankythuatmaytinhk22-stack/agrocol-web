@@ -1,17 +1,16 @@
 import { useState, useRef, useEffect } from 'react';
 import * as tmImage from '@teachablemachine/image';
-import { Camera, BrainCircuit, Loader2, ArrowLeft, ShieldAlert, ShieldCheck, RefreshCw, Cpu } from 'lucide-react';
+import { Camera, BrainCircuit, Loader2, ArrowLeft, ShieldAlert, ShieldCheck, RefreshCw, Cpu, Upload } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { generateAdvice } from '../lib/visionAI';
 
-// Đường dẫn tới 2 thư mục model trên GitHub của bạn
+// Đường dẫn tới 2 thư mục model
 const MODEL_QUALITY_URL = "/tm-my-image-model/";
-const MODEL_TYPE_URL = "/tm-my-image-model%20(1)/"; // Dấu cách đổi thành %20
+const MODEL_TYPE_URL = "/tm-my-image-model%20(1)/"; 
 
 export default function FruitScannerPage() {
   const navigate = useNavigate();
   
-  // State cho 2 model
   const [modelQuality, setModelQuality] = useState(null);
   const [modelType, setModelType] = useState(null);
   
@@ -20,25 +19,24 @@ export default function FruitScannerPage() {
   const [isScanning, setIsScanning] = useState(false);
   const [result, setResult] = useState(null);
   
-  const webcamRef = useRef(null);
+  // Sử dụng ref trực tiếp cho canvas thay vì div
+  const canvasRef = useRef(null);
   const webcamInstance = useRef(null);
+  const fileInputRef = useRef(null);
 
-  // Load CẢ 2 MÔ HÌNH AI KHI VÀO TRANG
   useEffect(() => {
     const loadModels = async () => {
       try {
-        // Tải song song 2 model để nhanh hơn
         const [loadedQuality, loadedType] = await Promise.all([
           tmImage.load(MODEL_QUALITY_URL + "model.json", MODEL_QUALITY_URL + "metadata.json"),
           tmImage.load(MODEL_TYPE_URL + "model.json", MODEL_TYPE_URL + "metadata.json")
         ]);
-        
         setModelQuality(loadedQuality);
         setModelType(loadedType);
         setIsLoadingModels(false);
       } catch (error) {
         console.error("Lỗi load model:", error);
-        alert("Không thể tải mô hình AI. Hãy chắc chắn bạn đã copy thư mục model vào public và cấu hình vercel.json đúng.");
+        alert("Không thể tải mô hình AI. Vui lòng kiểm tra lại kết nối mạng.");
       }
     };
     loadModels();
@@ -49,14 +47,26 @@ export default function FruitScannerPage() {
     setIsCameraOn(true);
     setResult(null);
 
-    const flip = true; 
-    webcamInstance.current = new tmImage.Webcam(300, 300, flip);
-    await webcamInstance.current.setup();
-    await webcamInstance.current.play();
-    
-    if (webcamRef.current) {
-      webcamRef.current.innerHTML = '';
-      webcamRef.current.appendChild(webcamInstance.current.canvas);
+    try {
+      const flip = true; 
+      webcamInstance.current = new tmImage.Webcam(300, 300, flip);
+      await webcamInstance.current.setup();
+      await webcamInstance.current.play();
+      
+      // Gắn canvas trực tiếp vào ref
+      if (canvasRef.current) {
+        canvasRef.current.innerHTML = ''; // Xóa cũ
+        canvasRef.current.appendChild(webcamInstance.current.canvas);
+        
+        // Ép CSS cho canvas hiển thị đầy khung
+        webcamInstance.current.canvas.style.width = '100%';
+        webcamInstance.current.canvas.style.height = '100%';
+        webcamInstance.current.canvas.style.objectFit = 'cover';
+      }
+    } catch (err) {
+      console.error("Lỗi bật camera:", err);
+      alert("Không thể truy cập Camera. Vui lòng kiểm tra quyền truy cập hoặc dùng nút 'Tải ảnh lên'.");
+      setIsCameraOn(false);
     }
   };
 
@@ -69,48 +79,65 @@ export default function FruitScannerPage() {
     setResult(null);
   };
 
-  const handleAnalyze = async () => {
-    if (!webcamInstance.current || !modelQuality || !modelType) return;
+  const processImage = async (imageElement) => {
     setIsScanning(true);
-
     try {
-      webcamInstance.current.update();
-      const canvas = webcamInstance.current.canvas;
-
-      // 1. Cho Model 1 đoán Tươi/Hỏng
-      const predQuality = await modelQuality.predict(canvas);
+      const predQuality = await modelQuality.predict(imageElement);
       let topQuality = predQuality[0];
       for (let i = 1; i < predQuality.length; i++) {
         if (predQuality[i].probability > topQuality.probability) topQuality = predQuality[i];
       }
 
-      // 2. Cho Model 2 đoán Loại quả
-      const predType = await modelType.predict(canvas);
+      const predType = await modelType.predict(imageElement);
       let topType = predType[0];
       for (let i = 1; i < predType.length; i++) {
         if (predType[i].probability > topType.probability) topType = predType[i];
       }
 
-      // 3. Tổng hợp kết quả đưa ra lời khuyên
       const advice = generateAdvice(
         topType.className, topType.probability,
         topQuality.className, topQuality.probability
       );
       
+      // Lấy ảnh base64 để hiển thị lại
+      const imgData = imageElement.tagName === 'CANVAS' 
+        ? imageElement.toDataURL() 
+        : imageElement.src;
+
       setResult({
         ...advice,
         rawQuality: topQuality,
         rawType: topType,
-        capturedImage: canvas.toDataURL()
+        capturedImage: imgData
       });
       
-      stopCamera();
+      if (isCameraOn) stopCamera();
     } catch (error) {
       console.error(error);
       alert("Lỗi phân tích ảnh.");
     } finally {
       setIsScanning(false);
     }
+  };
+
+  const handleAnalyze = async () => {
+    if (!webcamInstance.current || !modelQuality || !modelType) return;
+    webcamInstance.current.update();
+    await processImage(webcamInstance.current.canvas);
+  };
+
+  // Xử lý khi người dùng chọn ảnh từ máy tính (Dự phòng nếu camera lỗi)
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => processImage(img);
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
   };
 
   if (isLoadingModels) {
@@ -144,42 +171,49 @@ export default function FruitScannerPage() {
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
           
           <div className="mb-6 flex flex-col items-center">
-            <div className="w-[300px] h-[300px] bg-gray-900 rounded-2xl overflow-hidden flex items-center justify-center relative shadow-inner">
+            {/* Khung chứa Camera/Ảnh */}
+            <div className="w-[300px] h-[300px] bg-gray-900 rounded-2xl overflow-hidden relative shadow-inner">
+              
+              {/* Thẻ div chứa canvas (Luôn tồn tại để gắn webcam vào) */}
+              <div ref={canvasRef} className={`w-full h-full ${isCameraOn ? 'block' : 'hidden'}`}></div>
+              
               {!isCameraOn && !result && (
-                <div className="text-center text-gray-400">
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-center text-gray-400">
                   <Camera className="w-12 h-12 mx-auto mb-2 opacity-50" />
                   <p className="text-sm font-medium">Camera đang tắt</p>
                 </div>
               )}
-              
-              {isCameraOn && (
-                <div ref={webcamRef} className="w-full h-full object-cover"></div>
-              )}
 
               {result && (
-                <img src={result.capturedImage} alt="Captured" className="w-full h-full object-cover" />
+                <img src={result.capturedImage} alt="Captured" className="absolute inset-0 w-full h-full object-cover" />
               )}
 
               {isScanning && (
-                <div className="absolute inset-0 bg-agro-dark/40 backdrop-blur-sm flex flex-col items-center justify-center text-white z-10">
+                <div className="absolute inset-0 bg-agro-dark/60 backdrop-blur-sm flex flex-col items-center justify-center text-white z-10">
                   <Loader2 className="w-10 h-10 animate-spin text-agro-yellow mb-3" />
-                  <p className="font-bold">2 AI đang cùng phân tích...</p>
+                  <p className="font-bold">AI đang phân tích...</p>
                 </div>
               )}
             </div>
           </div>
 
-          <div className="flex gap-3 justify-center">
+          <div className="flex flex-wrap gap-3 justify-center">
             {!isCameraOn && !result && (
-              <button onClick={startCamera} className="bg-agro-dark hover:bg-agro-dark/90 text-white font-bold py-3 px-8 rounded-xl flex items-center gap-2">
-                <Camera className="w-5 h-5" /> Bật Camera
-              </button>
+              <>
+                <button onClick={startCamera} className="bg-agro-dark hover:bg-agro-dark/90 text-white font-bold py-3 px-6 rounded-xl flex items-center gap-2">
+                  <Camera className="w-5 h-5" /> Bật Camera
+                </button>
+                <button onClick={() => fileInputRef.current.click()} className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 px-6 rounded-xl flex items-center gap-2 border border-gray-300">
+                  <Upload className="w-5 h-5" /> Tải ảnh lên
+                </button>
+                <input type="file" accept="image/*" className="hidden" ref={fileInputRef} onChange={handleFileUpload} />
+              </>
             )}
 
             {isCameraOn && (
               <>
                 <button onClick={stopCamera} className="bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold py-3 px-6 rounded-xl">
-                  Tắt
+                  Tắt Camera
                 </button>
                 <button onClick={handleAnalyze} disabled={isScanning} className="bg-agro-yellow hover:bg-yellow-500 text-agro-dark font-bold py-3 px-8 rounded-xl flex items-center gap-2">
                   <BrainCircuit className="w-5 h-5" /> Chụp & Phân tích
@@ -252,7 +286,6 @@ export default function FruitScannerPage() {
                 </ul>
               </div>
 
-              {/* Chi tiết 2 Model */}
               <div className="pt-4 border-t border-gray-100 grid grid-cols-2 gap-4">
                  <div className="bg-gray-50 p-3 rounded-lg">
                     <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Model Loại Quả</p>
