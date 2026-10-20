@@ -2,14 +2,17 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { getAllVehicles } from '../../services/vehicleService';
 import { getAllDrivers } from '../../services/driverService';
-import { updateDepositStatus, deleteOrder } from '../../services/orderService';
+import { updateDepositStatus, deleteOrder, updateOrderQuality } from '../../services/orderService';
 import {
   Package,
   Search,
   X,
   Trash2,
   BrainCircuit,
-  Loader2
+  Loader2,
+  ShieldCheck,
+  ShieldAlert,
+  ShieldX
 } from 'lucide-react';
 
 // Tọa độ Hub cố định
@@ -29,51 +32,39 @@ const checkRouteSimilarity = async (baseOrder, candidateOrder) => {
     return { isMatch: false, reason: 'Thiếu tọa độ' };
   }
 
-  const A = { lat: baseOrder.delivery_lat, lng: baseOrder.delivery_lng }; // Điểm đích chính
-  const B = { lat: candidateOrder.delivery_lat, lng: candidateOrder.delivery_lng }; // Điểm đích ứng viên
+  const A = { lat: baseOrder.delivery_lat, lng: baseOrder.delivery_lng };
+  const B = { lat: candidateOrder.delivery_lat, lng: candidateOrder.delivery_lng };
   
   try {
-    // 1. Tính thời gian đi thẳng: Hub -> A
     const urlDirect = `https://router.project-osrm.org/route/v1/driving/${HUB_COORDS.lng},${HUB_COORDS.lat};${A.lng},${A.lat}?overview=false`;
     const resDirect = await fetch(urlDirect);
     const dataDirect = await resDirect.json();
-    const directDuration = dataDirect.routes[0].duration / 60; // Phút
+    const directDuration = dataDirect.routes[0].duration / 60;
 
-    // 2. Tính thời gian đi vòng: Hub -> B -> A
     const urlViaB = `https://router.project-osrm.org/route/v1/driving/${HUB_COORDS.lng},${HUB_COORDS.lat};${B.lng},${B.lat};${A.lng},${A.lat}?overview=false`;
     const resViaB = await fetch(urlViaB);
     const dataViaB = await resViaB.json();
-    const viaBDuration = dataViaB.routes[0].duration / 60; // Phút
+    const viaBDuration = dataViaB.routes[0].duration / 60;
 
-    // 3. Tính thời gian đi vòng: Hub -> A -> B (để phòng trường hợp B nằm sau A)
     const urlViaA = `https://router.project-osrm.org/route/v1/driving/${HUB_COORDS.lng},${HUB_COORDS.lat};${A.lng},${A.lat};${B.lng},${B.lat}?overview=false`;
     const resViaA = await fetch(urlViaA);
     const dataViaA = await resViaA.json();
-    const viaADuration = dataViaA.routes[0].duration / 60; // Phút
+    const viaADuration = dataViaA.routes[0].duration / 60;
 
-    // 4. AI Đánh giá:
     const extraTimeB = viaBDuration - directDuration;
     const extraTimeA = viaADuration - directDuration;
     
-    // Tìm phương án tối ưu nhất (đi qua B trước hay đi qua B sau)
     const minExtraTime = Math.min(extraTimeB, extraTimeA);
     const optimalOrder = extraTimeB < extraTimeA ? 'Hub → B → A' : 'Hub → A → B';
 
-    // Nếu thời gian phát sinh ít hơn 25 phút -> Được coi là "tiện đường"
     if (minExtraTime <= 25) {
-      return { 
-        isMatch: true, 
-        extraTime: Math.round(minExtraTime),
-        suggestedRoute: optimalOrder
-      };
+      return { isMatch: true, extraTime: Math.round(minExtraTime), suggestedRoute: optimalOrder };
     }
-
     return { isMatch: false, reason: 'Lệch tuyến đường quá xa' };
   } catch (err) {
     console.error('Lỗi OSRM:', err);
-    // Nếu API OSRM lỗi (quá tải), fallback về khoảng cách đường chim bay
     const dist = Math.sqrt(Math.pow(A.lat - B.lat, 2) + Math.pow(A.lng - B.lng, 2));
-    return { isMatch: dist < 0.8, extraTime: 0, isFallback: true }; // Fallback giãn ra 0.8 độ
+    return { isMatch: dist < 0.8, extraTime: 0, isFallback: true };
   }
 };
 
@@ -95,6 +86,11 @@ export default function OrdersPage() {
   const [aiSuggestions, setAiSuggestions] = useState([]);
   const [scanningAI, setScanningAI] = useState(false);
   const [selectedMergeOrders, setSelectedMergeOrders] = useState([]);
+
+  // State cho AI Đánh giá chất lượng
+  const [evaluateModal, setEvaluateModal] = useState(null);
+  const [feedbackInput, setFeedbackInput] = useState(100);
+  const [evaluating, setEvaluating] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -131,12 +127,10 @@ export default function OrdersPage() {
     }
   };
 
-  // HÀM GỌI AI QUÉT CÁC ĐƠN TIỆN TUYẾN
   const runAIScan = async (currentOrder) => {
     setScanningAI(true);
     setAiSuggestions([]);
     
-    // Lọc sơ bộ: Cùng ngày, chưa phân công, tổng thùng <= 12, cách giờ <= 4h
     const unassigned = orders.filter(o => 
       o.id !== currentOrder.id && 
       (!assignments[o.id] || assignments[o.id].length === 0) &&
@@ -151,11 +145,9 @@ export default function OrdersPage() {
       return;
     }
 
-    // Gọi AI (OSRM) để check tuyến đường
     const validSuggestions = [];
     for (const o of unassigned) {
       const routeResult = await checkRouteSimilarity(currentOrder, o);
-      
       if (routeResult.isMatch) {
         validSuggestions.push({ 
           ...o, 
@@ -172,7 +164,7 @@ export default function OrdersPage() {
   const handleOpenAssignModal = (order) => {
     setAssignModal(order);
     setSelectedMergeOrders([]); 
-    runAIScan(order); // Chạy AI quét ngay khi mở Modal
+    runAIScan(order);
     
     const distribution = calculateVehicles(order.boxes);
     const existing = assignments[order.id] || [];
@@ -192,7 +184,6 @@ export default function OrdersPage() {
     });
   };
 
-  // Tự động tính lại số xe khi ghép
   useEffect(() => {
     if (!assignModal) return;
     
@@ -268,7 +259,6 @@ export default function OrdersPage() {
         driver_id: assignList[0].driverId,
       }).eq('id', assignModal.id);
 
-      // Xử lý các đơn được ghép
       for (const mergeOrder of selectedMergeOrders) {
         const lastVehicle = assignList[assignList.length - 1];
         await supabase.from('order_assignments').insert({
@@ -309,6 +299,58 @@ export default function OrdersPage() {
       alert('Lỗi: ' + err.message);
     } finally {
       setAssigning(false);
+    }
+  };
+
+  // HÀM AI ĐÁNH GIÁ CHẤT LƯỢNG
+  const handleEvaluateOrder = async () => {
+    if (!evaluateModal) return;
+    setEvaluating(true);
+
+    try {
+      // Lấy dữ liệu nhiệt độ (giả lập 14 độ, sau này có thể query bảng sensor_readings)
+      const avgTemp = 14; 
+      const targetTempMin = 13;
+      const targetTempMax = 15;
+
+      let aiStatus = '';
+      let aiAdvice = '';
+      let alertLevel = 'safe';
+
+      const isTempGood = avgTemp >= targetTempMin && avgTemp <= targetTempMax;
+      const isFeedbackGood = feedbackInput >= 80;
+
+      if (isTempGood && isFeedbackGood) {
+        aiStatus = "Chất lượng dịch vụ Xuất sắc";
+        aiAdvice = "Nhiệt độ bảo quản được giữ ổn định và khách hàng rất hài lòng.";
+        alertLevel = 'safe';
+      } else if (isTempGood && !isFeedbackGood) {
+        aiStatus = "Cảnh báo: Nông sản hư hỏng do va đập";
+        aiAdvice = "Nhiệt độ bình thường, điểm hài lòng thấp. Có thể do bốc xếp dập nát.";
+        alertLevel = 'warning';
+      } else if (!isTempGood && isFeedbackGood) {
+        aiStatus = "Cảnh báo: Hệ thống lạnh có vấn đề";
+        aiAdvice = "Khách vẫn hài lòng nhưng nhiệt độ vượt ngưỡng. Cần kiểm tra lại thùng.";
+        alertLevel = 'warning';
+      } else {
+        aiStatus = "Nguy hiểm: Hỏng nông sản nghiêm trọng";
+        aiAdvice = "Nhiệt độ mất kiểm soát và khách phàn nàn. Cần kiểm tra ngay hệ thống lạnh.";
+        alertLevel = 'danger';
+      }
+
+      const assessmentData = {
+        avgTemp, feedback: feedbackInput, aiStatus, aiAdvice, alertLevel, evaluatedAt: new Date().toISOString()
+      };
+
+      await updateOrderQuality(evaluateModal.id, feedbackInput, assessmentData);
+      
+      alert('Đã lưu đánh giá chất lượng!');
+      setEvaluateModal(null);
+      fetchData();
+    } catch (err) {
+      alert('Lỗi: ' + err.message);
+    } finally {
+      setEvaluating(false);
     }
   };
 
@@ -459,7 +501,7 @@ export default function OrdersPage() {
               <th className="px-4 py-4 text-xs font-bold">Giờ đặt</th>
               <th className="px-4 py-4 text-xs font-bold">Xe / Tài xế</th>
               <th className="px-4 py-4 text-xs font-bold text-center">Thanh toán cọc</th>
-              <th className="px-4 py-4 text-xs font-bold">Trạng thái</th>
+              <th className="px-4 py-4 text-xs font-bold">Trạng thái & Đánh giá</th>
               <th className="px-4 py-4 text-xs font-bold text-center">Hành động</th>
             </tr>
           </thead>
@@ -516,18 +558,49 @@ export default function OrdersPage() {
                       </select>
                     </td>
 
+                    {/* CỘT TRẠNG THÁI & ĐÁNH GIÁ AI */}
                     <td className="px-4 py-4">
                       <select value={order.status} onChange={(e) => updateOrderStatus(order.id, e.target.value)} className={`border rounded-lg px-2 py-1.5 text-xs font-bold outline-none focus:ring-2 focus:ring-agro-dark ${orderStatusOptions.find((s) => s.value === order.status)?.color}`}>
                         {orderStatusOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                       </select>
+                      
+                      {order.quality_assessment && (
+                        <div className="mt-2">
+                          <span 
+                            className={`text-[10px] font-bold px-2 py-1 rounded-md flex items-center gap-1 w-fit ${
+                              order.quality_assessment.alertLevel === 'safe' ? 'bg-green-100 text-green-700' :
+                              order.quality_assessment.alertLevel === 'warning' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                            }`}
+                            title={order.quality_assessment.aiAdvice}
+                          >
+                            {order.quality_assessment.alertLevel === 'safe' ? <ShieldCheck className="w-3 h-3" /> :
+                             order.quality_assessment.alertLevel === 'warning' ? <ShieldAlert className="w-3 h-3" /> : <ShieldX className="w-3 h-3" />}
+                            AI: {order.quality_assessment.feedback}% hài lòng
+                          </span>
+                        </div>
+                      )}
                     </td>
                     
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-2 justify-center">
+                        {/* Nút Phân công / Hủy PC */}
                         {orderAssigns.length === 0 ? (
                           <button onClick={() => handleOpenAssignModal(order)} className="bg-agro-yellow hover:bg-yellow-500 text-agro-dark font-bold px-3 py-2 rounded-lg text-xs whitespace-nowrap">Phân công</button>
                         ) : (
                           <button onClick={() => handleUnassign(order)} className="bg-red-50 hover:bg-red-100 text-red-600 font-bold px-3 py-2 rounded-lg text-xs whitespace-nowrap">Hủy PC</button>
+                        )}
+
+                        {/* Nút Đánh giá (Chỉ hiện khi đã giao) */}
+                        {order.status === 'delivered' && (
+                          <button 
+                            onClick={() => {
+                              setEvaluateModal(order);
+                              setFeedbackInput(order.customer_feedback_score || 100);
+                            }} 
+                            className="bg-blue-50 hover:bg-blue-100 text-blue-600 font-bold px-3 py-2 rounded-lg text-xs whitespace-nowrap flex items-center gap-1"
+                          >
+                            <BrainCircuit className="w-3 h-3" /> Đánh giá
+                          </button>
                         )}
                         
                         <button onClick={() => handleDeleteOrder(order.id)} className="bg-gray-100 hover:bg-red-100 text-gray-500 hover:text-red-600 p-2 rounded-lg transition-colors" title="Xóa đơn">
@@ -641,6 +714,64 @@ export default function OrdersPage() {
             <div className="flex gap-3 p-5 border-t border-gray-100 sticky bottom-0 bg-white">
               <button onClick={() => setAssignModal(null)} className="flex-1 border-2 border-gray-300 hover:bg-gray-50 font-bold py-3 rounded-xl">Hủy</button>
               <button onClick={handleAssign} disabled={assigning || assignList.some((a) => !a.vehicleId || !a.driverId)} className="flex-1 bg-agro-yellow hover:bg-yellow-500 font-bold py-3 rounded-xl disabled:opacity-50">{assigning ? 'Đang xử lý...' : `Xác nhận phân công`}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL AI ĐÁNH GIÁ CHẤT LƯỢNG */}
+      {evaluateModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setEvaluateModal(null)}>
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-5 border-b border-gray-100 bg-blue-50">
+              <h3 className="font-bold text-blue-900 flex items-center gap-2">
+                <BrainCircuit className="w-5 h-5" /> AI Đánh giá chất lượng
+              </h3>
+              <button onClick={() => setEvaluateModal(null)} className="text-gray-400 hover:text-gray-700"><X className="w-5 h-5" /></button>
+            </div>
+            
+            <div className="p-5 space-y-5">
+              <div className="bg-gray-50 p-3 rounded-xl border border-gray-100 text-sm">
+                <p><strong>Mã đơn:</strong> {evaluateModal.order_code}</p>
+                <p><strong>Khách hàng:</strong> {evaluateModal.customer_name}</p>
+                <p><strong>Nhiệt độ ghi nhận:</strong> ~14°C (Đạt chuẩn)</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  Điểm hài lòng của khách hàng (%)
+                </label>
+                <input 
+                  type="range" 
+                  min="0" max="100" step="5"
+                  value={feedbackInput}
+                  onChange={(e) => setFeedbackInput(parseInt(e.target.value))}
+                  className="w-full accent-blue-600"
+                />
+                <div className="flex justify-between text-xs font-bold mt-1">
+                  <span className="text-red-500">Rất tệ (0%)</span>
+                  <span className="text-blue-600 text-lg">{feedbackInput}%</span>
+                  <span className="text-green-500">Tuyệt vời (100%)</span>
+                </div>
+              </div>
+
+              {feedbackInput < 80 && (
+                <div className="bg-amber-50 text-amber-800 p-3 rounded-xl text-xs border border-amber-200">
+                  <p className="font-bold mb-1">⚠️ Cảnh báo từ hệ thống:</p>
+                  <p>Điểm hài lòng thấp. Các thùng hàng của đơn này sẽ được đánh dấu để kiểm tra lại chất lượng (dập nát, hư hỏng).</p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3 p-5 border-t border-gray-100 bg-gray-50">
+              <button onClick={() => setEvaluateModal(null)} className="flex-1 border border-gray-300 font-bold py-3 rounded-xl hover:bg-white">Hủy</button>
+              <button 
+                onClick={handleEvaluateOrder} 
+                disabled={evaluating} 
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl disabled:opacity-50"
+              >
+                {evaluating ? 'Đang phân tích...' : 'Lưu & Đánh giá'}
+              </button>
             </div>
           </div>
         </div>
