@@ -6,29 +6,75 @@ import { updateDepositStatus, deleteOrder } from '../../services/orderService';
 import {
   Package,
   Search,
-  Truck,
-  Users,
   X,
-  CheckCircle,
   Trash2,
-  AlertCircle,
-  Link as LinkIcon // Icon cho tính năng ghép chuyến
+  BrainCircuit,
+  Loader2
 } from 'lucide-react';
 
-// Hàm tính khoảng cách tương đối giữa 2 tọa độ (dùng để check "gần nhau")
-const isNearby = (lat1, lng1, lat2, lng2) => {
-  if (!lat1 || !lng1 || !lat2 || !lng2) return false;
-  // Tính khoảng cách Euclid đơn giản (không cần chính xác tuyệt đối cho gợi ý)
-  const dist = Math.sqrt(Math.pow(lat1 - lat2, 2) + Math.pow(lng1 - lng2, 2));
-  return dist < 0.5; // Khoảng cách < 0.5 độ (khoảng ~50km) thì coi là gần
-};
+// Tọa độ Hub cố định
+const HUB_COORDS = { lat: 12.6662, lng: 108.0382 };
 
 // Hàm tính chênh lệch giờ
 const hoursDiff = (date1, time1, date2, time2) => {
   if (!date1 || !time1 || !date2 || !time2) return 99;
   const d1 = new Date(`${date1}T${time1}`);
   const d2 = new Date(`${date2}T${time2}`);
-  return Math.abs(d1 - d2) / 36e5; // miliseconds to hours
+  return Math.abs(d1 - d2) / 36e5;
+};
+
+// HÀM AI: Kiểm tra xem 2 điểm giao có "tiện tuyến đường" không
+const checkRouteSimilarity = async (baseOrder, candidateOrder) => {
+  if (!baseOrder.delivery_lat || !candidateOrder.delivery_lat) {
+    return { isMatch: false, reason: 'Thiếu tọa độ' };
+  }
+
+  const A = { lat: baseOrder.delivery_lat, lng: baseOrder.delivery_lng }; // Điểm đích chính
+  const B = { lat: candidateOrder.delivery_lat, lng: candidateOrder.delivery_lng }; // Điểm đích ứng viên
+  
+  try {
+    // 1. Tính thời gian đi thẳng: Hub -> A
+    const urlDirect = `https://router.project-osrm.org/route/v1/driving/${HUB_COORDS.lng},${HUB_COORDS.lat};${A.lng},${A.lat}?overview=false`;
+    const resDirect = await fetch(urlDirect);
+    const dataDirect = await resDirect.json();
+    const directDuration = dataDirect.routes[0].duration / 60; // Phút
+
+    // 2. Tính thời gian đi vòng: Hub -> B -> A
+    const urlViaB = `https://router.project-osrm.org/route/v1/driving/${HUB_COORDS.lng},${HUB_COORDS.lat};${B.lng},${B.lat};${A.lng},${A.lat}?overview=false`;
+    const resViaB = await fetch(urlViaB);
+    const dataViaB = await resViaB.json();
+    const viaBDuration = dataViaB.routes[0].duration / 60; // Phút
+
+    // 3. Tính thời gian đi vòng: Hub -> A -> B (để phòng trường hợp B nằm sau A)
+    const urlViaA = `https://router.project-osrm.org/route/v1/driving/${HUB_COORDS.lng},${HUB_COORDS.lat};${A.lng},${A.lat};${B.lng},${B.lat}?overview=false`;
+    const resViaA = await fetch(urlViaA);
+    const dataViaA = await resViaA.json();
+    const viaADuration = dataViaA.routes[0].duration / 60; // Phút
+
+    // 4. AI Đánh giá:
+    const extraTimeB = viaBDuration - directDuration;
+    const extraTimeA = viaADuration - directDuration;
+    
+    // Tìm phương án tối ưu nhất (đi qua B trước hay đi qua B sau)
+    const minExtraTime = Math.min(extraTimeB, extraTimeA);
+    const optimalOrder = extraTimeB < extraTimeA ? 'Hub → B → A' : 'Hub → A → B';
+
+    // Nếu thời gian phát sinh ít hơn 25 phút -> Được coi là "tiện đường"
+    if (minExtraTime <= 25) {
+      return { 
+        isMatch: true, 
+        extraTime: Math.round(minExtraTime),
+        suggestedRoute: optimalOrder
+      };
+    }
+
+    return { isMatch: false, reason: 'Lệch tuyến đường quá xa' };
+  } catch (err) {
+    console.error('Lỗi OSRM:', err);
+    // Nếu API OSRM lỗi (quá tải), fallback về khoảng cách đường chim bay
+    const dist = Math.sqrt(Math.pow(A.lat - B.lat, 2) + Math.pow(A.lng - B.lng, 2));
+    return { isMatch: dist < 0.8, extraTime: 0, isFallback: true }; // Fallback giãn ra 0.8 độ
+  }
 };
 
 export default function OrdersPage() {
@@ -45,8 +91,9 @@ export default function OrdersPage() {
   const [assignList, setAssignList] = useState([]);
   const [assigning, setAssigning] = useState(false);
   
-  // State cho tính năng ghép chuyến
-  const [mergeSuggestions, setMergeSuggestions] = useState([]);
+  // State cho AI ghép chuyến
+  const [aiSuggestions, setAiSuggestions] = useState([]);
+  const [scanningAI, setScanningAI] = useState(false);
   const [selectedMergeOrders, setSelectedMergeOrders] = useState([]);
 
   useEffect(() => {
@@ -84,34 +131,49 @@ export default function OrdersPage() {
     }
   };
 
-  // Hàm tìm các đơn có thể ghép chuyến
-  const findMergeSuggestions = (currentOrder) => {
-    // 1. Lấy các đơn chưa phân công, cùng ngày gửi
+  // HÀM GỌI AI QUÉT CÁC ĐƠN TIỆN TUYẾN
+  const runAIScan = async (currentOrder) => {
+    setScanningAI(true);
+    setAiSuggestions([]);
+    
+    // Lọc sơ bộ: Cùng ngày, chưa phân công, tổng thùng <= 12, cách giờ <= 4h
     const unassigned = orders.filter(o => 
       o.id !== currentOrder.id && 
       (!assignments[o.id] || assignments[o.id].length === 0) &&
       o.status === 'pending' &&
-      o.send_date === currentOrder.send_date
+      o.send_date === currentOrder.send_date &&
+      hoursDiff(currentOrder.send_date, currentOrder.pickup_time, o.send_date, o.pickup_time) <= 4 &&
+      ((currentOrder.boxes || 0) + (o.boxes || 0)) <= 12
     );
 
-    // 2. Lọc theo điều kiện: Gần nhau, giờ cách <= 4h, tổng thùng <= 12
-    const validSuggestions = unassigned.filter(o => {
-      const near = isNearby(currentOrder.delivery_lat, currentOrder.delivery_lng, o.delivery_lat, o.delivery_lng);
-      const timeClose = hoursDiff(currentOrder.send_date, currentOrder.pickup_time, o.send_date, o.pickup_time) <= 4;
-      const totalBoxes = (currentOrder.boxes || 0) + (o.boxes || 0);
-      
-      return near && timeClose && totalBoxes <= 12;
-    });
+    if (unassigned.length === 0) {
+      setScanningAI(false);
+      return;
+    }
 
-    setMergeSuggestions(validSuggestions);
-    setSelectedMergeOrders([]); // Reset lựa chọn
+    // Gọi AI (OSRM) để check tuyến đường
+    const validSuggestions = [];
+    for (const o of unassigned) {
+      const routeResult = await checkRouteSimilarity(currentOrder, o);
+      
+      if (routeResult.isMatch) {
+        validSuggestions.push({ 
+          ...o, 
+          aiExtraTime: routeResult.extraTime,
+          aiSuggestedRoute: routeResult.suggestedRoute
+        });
+      }
+    }
+
+    setAiSuggestions(validSuggestions);
+    setScanningAI(false);
   };
 
   const handleOpenAssignModal = (order) => {
     setAssignModal(order);
-    findMergeSuggestions(order); // Tìm đơn ghép ngay khi mở Modal
+    setSelectedMergeOrders([]); 
+    runAIScan(order); // Chạy AI quét ngay khi mở Modal
     
-    // Khởi tạo danh sách xe mặc định cho đơn hiện tại
     const distribution = calculateVehicles(order.boxes);
     const existing = assignments[order.id] || [];
     const list = distribution.map((boxes, i) => ({
@@ -130,14 +192,11 @@ export default function OrdersPage() {
     });
   };
 
-  // Tính lại số xe khi có ghép chuyến
+  // Tự động tính lại số xe khi ghép
   useEffect(() => {
     if (!assignModal) return;
     
-    // Tổng số thùng bao gồm cả các đơn được ghép
     const totalBoxes = (assignModal.boxes || 0) + selectedMergeOrders.reduce((sum, o) => sum + (o.boxes || 0), 0);
-    
-    // Chia lại số xe (12 thùng/xe)
     const numVehicles = Math.ceil(totalBoxes / 12);
     const distribution = [];
     let remaining = totalBoxes;
@@ -189,13 +248,11 @@ export default function OrdersPage() {
 
     setAssigning(true);
     try {
-      // Xóa phân công cũ của các đơn liên quan (nếu có)
       await supabase.from('order_assignments').delete().eq('order_id', assignModal.id);
       for (const mergeOrder of selectedMergeOrders) {
         await supabase.from('order_assignments').delete().eq('order_id', mergeOrder.id);
       }
 
-      // Tạo phân công mới cho đơn chính
       const inserts = assignList.map((a) => ({
         order_id: assignModal.id, 
         vehicle_id: a.vehicleId, 
@@ -205,30 +262,29 @@ export default function OrdersPage() {
       }));
       await supabase.from('order_assignments').insert(inserts);
 
-      // Cập nhật trạng thái đơn chính
       await supabase.from('orders').update({
         status: 'shipping', 
         vehicle_id: assignList[0].vehicleId, 
         driver_id: assignList[0].driverId,
       }).eq('id', assignModal.id);
 
-      // NẾU CÓ GHÉP CHUYẾN: Cập nhật luôn cho các đơn được ghép
+      // Xử lý các đơn được ghép
       for (const mergeOrder of selectedMergeOrders) {
+        const lastVehicle = assignList[assignList.length - 1];
         await supabase.from('order_assignments').insert({
           order_id: mergeOrder.id,
-          vehicle_id: assignList[assignList.length - 1].vehicleId, // Cho lên xe cuối cùng
-          driver_id: assignList[assignList.length - 1].driverId,
+          vehicle_id: lastVehicle.vehicleId, 
+          driver_id: lastVehicle.driverId,
           boxes_assigned: mergeOrder.boxes,
           status: 'assigned',
         });
         await supabase.from('orders').update({
           status: 'shipping',
-          vehicle_id: assignList[assignList.length - 1].vehicleId,
-          driver_id: assignList[assignList.length - 1].driverId,
+          vehicle_id: lastVehicle.vehicleId,
+          driver_id: lastVehicle.driverId,
         }).eq('id', mergeOrder.id);
       }
 
-      // Cập nhật trạng thái xe và tài xế
       for (const a of assignList) {
         await supabase.from('vehicles').update({
           status: 'in_transit', 
@@ -253,6 +309,26 @@ export default function OrdersPage() {
       alert('Lỗi: ' + err.message);
     } finally {
       setAssigning(false);
+    }
+  };
+
+  const handleDepositChange = async (orderId, status) => {
+    try {
+      await updateDepositStatus(orderId, status);
+      fetchData();
+    } catch (err) {
+      alert('Lỗi cập nhật cọc: ' + err.message);
+    }
+  };
+
+  const handleDeleteOrder = async (orderId) => {
+    if (!window.confirm('Bạn có chắc chắn muốn xóa đơn hàng này? Hành động này không thể hoàn tác!')) return;
+    try {
+      await deleteOrder(orderId);
+      alert('Đã xóa đơn hàng!');
+      fetchData();
+    } catch (err) {
+      alert('Lỗi xóa đơn: ' + err.message);
     }
   };
 
@@ -427,7 +503,6 @@ export default function OrdersPage() {
                       )}
                     </td>
                     
-                    {/* CỘT THANH TOÁN CỌC */}
                     <td className="px-4 py-4 text-center">
                       <select 
                         value={order.deposit_status || 'unpaid'} 
@@ -447,7 +522,6 @@ export default function OrdersPage() {
                       </select>
                     </td>
                     
-                    {/* CỘT HÀNH ĐỘNG */}
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-2 justify-center">
                         {orderAssigns.length === 0 ? (
@@ -469,7 +543,7 @@ export default function OrdersPage() {
         </table>
       </div>
 
-      {/* MODAL PHÂN CÔNG + GHÉP CHUYẾN */}
+      {/* MODAL PHÂN CÔNG + AI GHÉP CHUYẾN */}
       {assignModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setAssignModal(null)}>
           <div className="bg-white rounded-2xl max-w-3xl w-full shadow-2xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
@@ -487,33 +561,52 @@ export default function OrdersPage() {
                 </div>
               </div>
 
-              {/* GỢI Ý GHÉP CHUYẾN */}
-              {mergeSuggestions.length > 0 && (
-                <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <LinkIcon className="w-5 h-5 text-blue-600" />
-                    <h4 className="font-bold text-blue-800 text-sm">Có {mergeSuggestions.length} đơn có thể ghép chuyến</h4>
-                  </div>
-                  <p className="text-xs text-blue-600 mb-3">Các đơn này cùng ngày, gần nhau, cách &lt; 4h và tổng thùng &le; 12.</p>
-                  
-                  <div className="space-y-2">
-                    {mergeSuggestions.map(o => (
-                      <label key={o.id} className="flex items-center gap-3 bg-white p-2.5 rounded-lg border border-blue-100 cursor-pointer hover:bg-blue-50 transition-colors">
-                        <input 
-                          type="checkbox" 
-                          checked={selectedMergeOrders.some(so => so.id === o.id)}
-                          onChange={() => handleToggleMergeOrder(o)}
-                          className="w-4 h-4 accent-blue-600"
-                        />
-                        <div className="flex-1">
-                          <p className="font-bold text-sm text-agro-dark">{o.order_code} - {o.customer_name}</p>
-                          <p className="text-xs text-gray-500">{o.boxes} thùng · {o.pickup_time} · {o.delivery_address}</p>
-                        </div>
-                      </label>
-                    ))}
-                  </div>
+              {/* AI GỢI Ý GHÉP CHUYẾN */}
+              <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <BrainCircuit className="w-5 h-5 text-indigo-600" />
+                  <h4 className="font-bold text-indigo-800 text-sm">AI Phân tích tuyến đường</h4>
+                  {scanningAI && <Loader2 className="w-4 h-4 text-indigo-600 animate-spin ml-auto" />}
                 </div>
-              )}
+                
+                {scanningAI ? (
+                  <p className="text-xs text-indigo-600 italic">Đang quét dữ liệu tuyến đường thực tế (OSRM) để tìm điểm giao thông minh...</p>
+                ) : aiSuggestions.length > 0 ? (
+                  <>
+                    <p className="text-xs text-indigo-600 mb-3">Tìm thấy {aiSuggestions.length} đơn có thể ghép chuyến (cùng tuyến đường, tổng thùng &le; 12, cách &lt; 4h).</p>
+                    <div className="space-y-2">
+                      {aiSuggestions.map(o => (
+                        <label key={o.id} className="flex items-start gap-3 bg-white p-3 rounded-lg border border-indigo-100 cursor-pointer hover:bg-indigo-50 transition-colors">
+                          <input 
+                            type="checkbox" 
+                            checked={selectedMergeOrders.some(so => so.id === o.id)}
+                            onChange={() => handleToggleMergeOrder(o)}
+                            className="w-4 h-4 mt-1 accent-indigo-600"
+                          />
+                          <div className="flex-1">
+                            <p className="font-bold text-sm text-agro-dark">{o.order_code} - {o.customer_name}</p>
+                            <p className="text-xs text-gray-500 mb-1">{o.boxes} thùng · Giờ đặt: {o.pickup_time}</p>
+                            <p className="text-xs text-gray-500 line-clamp-1"><strong>Đ/c:</strong> {o.delivery_address}</p>
+                            
+                            {o.aiExtraTime !== undefined && (
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                <span className="bg-indigo-100 text-indigo-700 text-[10px] font-bold px-2 py-0.5 rounded">
+                                  Tuyến đường: {o.aiSuggestedRoute}
+                                </span>
+                                <span className="bg-amber-100 text-amber-700 text-[10px] font-bold px-2 py-0.5 rounded">
+                                  Trễ hơn +{o.aiExtraTime} phút
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-xs text-gray-500 italic">Không tìm thấy đơn hàng nào có cùng tuyến đường tối ưu để ghép.</p>
+                )}
+              </div>
 
               {/* DANH SÁCH XE (CẬP NHẬT THEO SỐ THÙNG GHÉP) */}
               <div className="space-y-3">
