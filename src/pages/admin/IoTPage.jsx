@@ -26,7 +26,20 @@ import {
   ArrowRight,
   Truck,
   X,
+  Navigation, // Icon mới cho GPS
+  Map,        // Icon mới cho bản đồ
 } from 'lucide-react';
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+
+// Fix icon Leaflet
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+});
 
 export default function IoTPage() {
   const { latest, history, shippingOrders, status, loading, error, deviceId } =
@@ -37,15 +50,24 @@ export default function IoTPage() {
   // State cho popup thông báo
   const [popupAlert, setPopupAlert] = useState(null);
 
+  // State cho GPS
+  const [gpsCoords, setGpsCoords] = useState(null);
+
   useEffect(() => {
     loadAlerts();
     const interval = setInterval(loadAlerts, 15000);
     return () => clearInterval(interval);
   }, []);
 
-  // Lắng nghe cảnh báo mới realtime để hiện popup
+  // Cập nhật tọa độ GPS mỗi khi có dữ liệu mới từ cảm biến
   useEffect(() => {
-    // Tạo channel và đăng ký listener TRƯỚC
+    if (latest && latest.gps_lat && latest.gps_lng) {
+      setGpsCoords({ lat: latest.gps_lat, lng: latest.gps_lng });
+    }
+  }, [latest]);
+
+  // Lắng nghe cảnh báo mới realtime
+  useEffect(() => {
     const channel = supabase
       .channel('iot-alerts-popup')
       .on(
@@ -53,17 +75,13 @@ export default function IoTPage() {
         { event: 'INSERT', schema: 'public', table: 'iot_alerts' },
         (payload) => {
           const newAlert = payload.new;
-          // Hiển thị popup
           setPopupAlert(newAlert);
-          // Tự động đóng popup sau 8 giây
           setTimeout(() => setPopupAlert(null), 8000);
-          // Cập nhật lại danh sách alerts
           loadAlerts();
         }
       )
-      .subscribe(); // Gọi subscribe SAU CÙNG
+      .subscribe();
 
-    // Cleanup khi component unmount
     return () => {
       supabase.removeChannel(channel);
     };
@@ -91,7 +109,26 @@ export default function IoTPage() {
     }
   };
 
-  // Group alerts theo order_code
+  // Hàm giả lập lấy vị trí hiện tại (dùng khi test không có GPS thật)
+  const handleGetCurrentLocation = () => {
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setGpsCoords({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude
+          });
+          alert("Đã lấy vị trí hiện tại của bạn! (Lưu ý: Đây là vị trí trình duyệt, không phải của thiết bị IoT)");
+        },
+        (error) => {
+          alert("Không thể lấy vị trí: " + error.message);
+        }
+      );
+    } else {
+      alert("Trình duyệt không hỗ trợ định vị.");
+    }
+  };
+
   const alertsByOrder = alerts.reduce((acc, alert) => {
     const key = alert.order_code || '__no_order__';
     if (!acc[key]) acc[key] = [];
@@ -129,8 +166,7 @@ export default function IoTPage() {
         <div>
           <p className="font-bold text-amber-800">Chưa nhận được dữ liệu</p>
           <p className="text-sm text-amber-600 mt-1">
-            Đảm bảo thiết bị ESP32-C3 đã kết nối WiFi "Thu van 1" và đang gửi
-            dữ liệu lên Supabase.
+            Đảm bảo thiết bị ESP32-C3 đã kết nối WiFi và đang gửi dữ liệu lên Supabase.
           </p>
         </div>
       </div>
@@ -170,7 +206,7 @@ export default function IoTPage() {
   return (
     <div className="space-y-6 relative">
       
-      {/* === POPUP CẢNH BÁO NHIỆT ĐỘ VƯỢT NGƯỠNG === */}
+      {/* POPUP CẢNH BÁO */}
       {popupAlert && (
         <div className="fixed top-5 right-5 z-[9999] animate-slide-in">
           <div className={`w-96 p-5 rounded-2xl shadow-2xl border-l-8 ${
@@ -320,6 +356,60 @@ export default function IoTPage() {
         </div>
       </div>
 
+      {/* === BẢN ĐỒ GPS REALTIME === */}
+      <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold text-agro-dark flex items-center gap-2">
+            <Map className="w-5 h-5" /> Vị trí GPS Realtime
+          </h3>
+          <button 
+            onClick={handleGetCurrentLocation}
+            className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors"
+          >
+            <Navigation className="w-3.5 h-3.5" /> Lấy vị trí hiện tại
+          </button>
+        </div>
+
+        {gpsCoords ? (
+          <div className="space-y-3">
+            <div className="bg-gray-50 p-3 rounded-xl text-sm flex justify-between items-center">
+              <span className="text-gray-500 font-medium">Tọa độ hiện tại:</span>
+              <span className="font-bold text-agro-dark font-mono">
+                {gpsCoords.lat.toFixed(6)}, {gpsCoords.lng.toFixed(6)}
+              </span>
+            </div>
+            <div className="h-[400px] w-full rounded-xl overflow-hidden border border-gray-200">
+              <MapContainer center={[gpsCoords.lat, gpsCoords.lng]} zoom={15} style={{ height: '100%', width: '100%' }}>
+                <TileLayer
+                  attribution='&copy; <a href="https://www.maptiler.com/copyright/">MapTiler</a>'
+                  url={`https://api.maptiler.com/maps/outdoor-v2/{z}/{x}/{y}.png?key=0kgv1m784H4kd86re01y`}
+                />
+                <Marker position={[gpsCoords.lat, gpsCoords.lng]}>
+                  <Popup>
+                    <div className="font-sans text-center">
+                      <p className="font-bold text-agro-dark">{deviceId}</p>
+                      <p className="text-xs text-gray-500">Đang ở đây</p>
+                    </div>
+                  </Popup>
+                </Marker>
+              </MapContainer>
+            </div>
+          </div>
+        ) : (
+          <div className="text-center py-12 bg-gray-50 rounded-xl border border-dashed border-gray-300">
+            <MapPin className="w-10 h-10 text-gray-400 mx-auto mb-2" />
+            <p className="text-sm text-gray-500 font-medium">Chưa có dữ liệu GPS từ thiết bị.</p>
+            <p className="text-xs text-gray-400 mt-1">Vui lòng kiểm tra kết nối module LC78G.</p>
+            <button 
+              onClick={handleGetCurrentLocation}
+              className="mt-4 bg-agro-dark hover:bg-agro-dark/90 text-white font-bold px-4 py-2 rounded-xl text-sm"
+            >
+              Dùng vị trí của tôi để test
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* Shipping orders */}
       <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
         <div className="flex items-center justify-between mb-4">
@@ -342,9 +432,6 @@ export default function IoTPage() {
             <Package className="w-12 h-12 text-gray-300 mx-auto mb-2" />
             <p className="text-sm text-gray-500 font-medium">
               Không có đơn hàng nào đang vận chuyển.
-            </p>
-            <p className="text-xs text-gray-400 mt-1">
-              Nhiệt độ hiện tại vẫn được giám sát cho các đơn tiếp theo.
             </p>
           </div>
         ) : (
@@ -377,7 +464,6 @@ export default function IoTPage() {
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-[10px] font-bold">
                             <AlertTriangle className="w-3 h-3" />
                             CẢNH BÁO
-                            {orderAlerts.length > 0 && ` (${orderAlerts.length})`}
                           </span>
                         )}
                       </div>
@@ -520,7 +606,7 @@ export default function IoTPage() {
                       <>
                         <AlertTriangle className="w-4 h-4 text-amber-600" />
                         <p className="font-bold text-amber-800 text-sm">
-                          Cảnh báo chung (không có đơn đang giao)
+                          Cảnh báo chung
                         </p>
                       </>
                     ) : (
@@ -532,12 +618,6 @@ export default function IoTPage() {
                         <span className="bg-red-200 text-red-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
                           {orderAlerts.length} cảnh báo
                         </span>
-                        <Link
-                          to={`/tracking/${orderCode}`}
-                          className="text-[10px] text-blue-600 hover:text-blue-700 font-semibold underline"
-                        >
-                          Xem chuyến hàng
-                        </Link>
                       </>
                     )}
                   </div>
