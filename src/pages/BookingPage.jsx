@@ -20,14 +20,17 @@ const EMPTY_FORM = {
   hub_address: HUB_ADDRESS,
 };
 
+// SỬA: Trả về số thực, làm tròn 2 chữ số thập phân
 const customCalcBoxes = (weight) => {
   const w = parseFloat(weight) || 0;
   if (w <= 0) return 0;
-  return Math.ceil(w / WEIGHT_PER_BOX);
+  return Number((w / WEIGHT_PER_BOX).toFixed(2)); 
 };
 
 const customCalcCost = (boxes) => {
-  return boxes * PRICE_PER_BOX;
+  // Vì số thùng có thể lẻ, nên chi phí cũng sẽ lẻ theo
+  // Nếu bạn muốn làm tròn chi phí lên, hãy dùng Math.ceil(boxes * PRICE_PER_BOX)
+  return Math.round(boxes * PRICE_PER_BOX);
 };
 
 const getProductInfo = (type) => {
@@ -219,8 +222,9 @@ export default function BookingPage() {
               <h3 className="text-4xl font-extrabold text-agro-yellow">{cost.toLocaleString('vi-VN')}đ</h3>
               <hr className="my-4 border-white/20" />
               <p className="text-sm opacity-80 font-medium">Số thùng ước tính</p>
+              {/* Hiển thị số thùng, nếu là số lẻ thì vẫn hiện */}
               <p className="text-2xl font-bold text-white">{boxes > 0 ? `${boxes} thùng` : 'Chưa xác định'}</p>
-              <p className="text-xs opacity-60 mt-2 italic">* Quy cách: {WEIGHT_PER_BOX}kg / thùng. Làm tròn lên.</p>
+              <p className="text-xs opacity-60 mt-2 italic">* Quy cách: {WEIGHT_PER_BOX}kg / thùng.</p>
             </div>
 
             {/* Thẻ nhiệt độ hiện tại */}
@@ -239,7 +243,7 @@ export default function BookingPage() {
               )}
             </div>
 
-            {/* BẢNG TRA CỨU NHIỆT ĐỘ NÔNG SẢN (Đã thêm lại) */}
+            {/* BẢNG TRA CỨU NHIỆT ĐỘ NÔNG SẢN */}
             <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
               <h3 className="font-bold text-agro-dark mb-4 flex items-center gap-2">
                 📋 Bảng nhiệt độ bảo quản
@@ -267,7 +271,7 @@ export default function BookingPage() {
         </div>
       </div>
 
-      {/* MODAL THANH TOÁN CỌC (HIỂN THỊ SAU KHI ĐẶT HÀNG) */}
+      {/* MODAL THANH TOÁN CỌC */}
       {showQR && currentOrderData && (
         <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden relative">
@@ -293,7 +297,6 @@ export default function BookingPage() {
               <div className="flex flex-col items-center">
                 <p className="text-sm font-bold text-gray-700 mb-2">Quét mã QR để chuyển khoản</p>
                 <div className="w-48 h-48 bg-white border-2 border-dashed border-gray-300 rounded-xl flex items-center justify-center overflow-hidden">
-                  {/* Thay src bằng tên file ảnh bạn đã up lên public, VD: /qr-code.jpg */}
                   <img 
                     src="/qr-code.jpg" 
                     alt="Mã QR Ngân hàng" 
