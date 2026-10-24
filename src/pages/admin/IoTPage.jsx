@@ -30,7 +30,8 @@ import {
   Map,
   Route,
 } from 'lucide-react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
+// THÊM IMPORT useMap
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -50,8 +51,21 @@ const truckIcon = new L.DivIcon({
   iconAnchor: [18, 18],
 });
 
-// Tọa độ mặc định (Kho Hub Buôn Ma Thuột) để hiển thị khi chưa có GPS
 const DEFAULT_COORDS = { lat: 12.6662, lng: 108.0382 };
+
+// === COMPONENT ĐIỀU KHIỂN BẢN ĐỒ TỰ ĐỘNG BAY ĐẾN VỊ TRÍ MỚI ===
+function MapController({ center }) {
+  const map = useMap();
+  useEffect(() => {
+    if (center) {
+      // flyTo sẽ tạo hiệu ứng bay mượt mà đến tọa độ mới
+      map.flyTo([center.lat, center.lng], 15, {
+        duration: 1.5 // Thời gian bay (giây)
+      });
+    }
+  }, [center, map]);
+  return null;
+}
 
 export default function IoTPage() {
   const { latest, history, shippingOrders, status, loading, error, deviceId } =
@@ -60,10 +74,8 @@ export default function IoTPage() {
   const [alertLoading, setAlertLoading] = useState(true);
   const [popupAlert, setPopupAlert] = useState(null);
 
-  // State cho GPS
   const [gpsCoords, setGpsCoords] = useState(null);
 
-  // State cho Theo dõi Hành trình
   const [selectedOrderId, setSelectedOrderId] = useState('');
   const [routePath, setRoutePath] = useState([]); 
   const [eta, setEta] = useState(null); 
@@ -159,7 +171,6 @@ export default function IoTPage() {
     }
   };
 
-  // Hàm lấy vị trí (Không hiển thị cảnh báo lỗi rườm rà)
   const handleGetCurrentLocation = () => {
     if ("geolocation" in navigator) {
       navigator.geolocation.getCurrentPosition(
@@ -171,7 +182,6 @@ export default function IoTPage() {
         },
         (error) => {
           console.error("Lỗi lấy vị trí: " + error.message);
-          // Nếu lỗi, vẫn giữ nguyên bản đồ mặc định
         }
       );
     }
@@ -253,7 +263,6 @@ export default function IoTPage() {
 
   const selectedOrder = shippingOrders.find(o => o.id === selectedOrderId);
 
-  // Vị trí hiển thị trên bản đồ (Ưu tiên GPS thật, nếu không có thì dùng vị trí Kho Hub)
   const displayCoords = gpsCoords || DEFAULT_COORDS;
   const isRealGPS = !!gpsCoords;
 
@@ -336,7 +345,6 @@ export default function IoTPage() {
             <strong>{shippingOrders.length}</strong> đơn đang giao
           </p>
         </div>
-        {/* ĐÃ BỎ PHẦN CẬP NHẬT 4 NGÀY TRƯỚC Ở ĐÂY */}
       </div>
 
       {/* Main temperature card */}
@@ -429,7 +437,6 @@ export default function IoTPage() {
               <span className="text-sm text-gray-500 italic">Không có đơn nào đang giao</span>
             )}
 
-            {/* NÚT XÁC ĐỊNH VỊ TRÍ (Hiển thị tinh tế) */}
             <button 
               onClick={handleGetCurrentLocation}
               className="text-xs bg-agro-dark hover:bg-agro-dark/90 text-white font-bold px-3 py-2 rounded-lg flex items-center gap-1.5 transition-colors"
@@ -472,12 +479,16 @@ export default function IoTPage() {
           </div>
           
           <div className="h-[450px] w-full rounded-xl overflow-hidden border border-gray-200 relative">
-            <MapContainer center={[displayCoords.lat, displayCoords.lng]} zoom={13} style={{ height: '100%', width: '100%' }}>
+            {/* Thêm prop key cho MapContainer để nó tự reset khi đổi vị trí hoàn toàn */}
+            <MapContainer key={`${displayCoords.lat}-${displayCoords.lng}`} center={[displayCoords.lat, displayCoords.lng]} zoom={13} style={{ height: '100%', width: '100%' }}>
               <TileLayer
                 attribution='&copy; <a href="https://www.maptiler.com/copyright/">MapTiler</a>'
                 url={`https://api.maptiler.com/maps/outdoor-v2/{z}/{x}/{y}.png?key=0kgv1m784H4kd86re01y`}
               />
               
+              {/* === GỌI COMPONENT ĐIỀU KHIỂN BẢN ĐỒ BAY === */}
+              <MapController center={displayCoords} />
+
               {routePath.length > 0 && isRealGPS && (
                 <Polyline 
                   positions={routePath} 
@@ -485,7 +496,6 @@ export default function IoTPage() {
                 />
               )}
 
-              {/* Marker vị trí hiện tại */}
               <Marker position={[displayCoords.lat, displayCoords.lng]} icon={truckIcon}>
                 <Popup>
                   <div className="font-sans text-center">
@@ -495,7 +505,6 @@ export default function IoTPage() {
                 </Popup>
               </Marker>
 
-              {/* Marker điểm đến */}
               {selectedOrder && selectedOrder.delivery_lat && isRealGPS && (
                 <Marker position={[selectedOrder.delivery_lat, selectedOrder.delivery_lng]}>
                   <Popup>
