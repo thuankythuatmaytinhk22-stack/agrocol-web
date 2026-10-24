@@ -50,13 +50,14 @@ const truckIcon = new L.DivIcon({
   iconAnchor: [18, 18],
 });
 
+// Tọa độ mặc định (Kho Hub Buôn Ma Thuột) để hiển thị khi chưa có GPS
+const DEFAULT_COORDS = { lat: 12.6662, lng: 108.0382 };
+
 export default function IoTPage() {
   const { latest, history, shippingOrders, status, loading, error, deviceId } =
     useIoTSensor();
   const [alerts, setAlerts] = useState([]);
   const [alertLoading, setAlertLoading] = useState(true);
-  
-  // State cho popup thông báo
   const [popupAlert, setPopupAlert] = useState(null);
 
   // State cho GPS
@@ -74,21 +75,18 @@ export default function IoTPage() {
     return () => clearInterval(interval);
   }, []);
 
-  // Cập nhật tọa độ GPS mỗi khi có dữ liệu mới từ cảm biến
   useEffect(() => {
     if (latest && latest.gps_lat && latest.gps_lng) {
       setGpsCoords({ lat: latest.gps_lat, lng: latest.gps_lng });
     }
   }, [latest]);
 
-  // Tự động chọn đơn hàng đầu tiên nếu có đơn đang giao
   useEffect(() => {
     if (shippingOrders.length > 0 && !selectedOrderId) {
       setSelectedOrderId(shippingOrders[0].id);
     }
   }, [shippingOrders]);
 
-  // Tự động vẽ đường đi thực tế khi có GPS và chọn đơn
   useEffect(() => {
     const fetchRoute = async () => {
       if (!gpsCoords || !selectedOrderId) return;
@@ -119,7 +117,6 @@ export default function IoTPage() {
     fetchRoute();
   }, [gpsCoords, selectedOrderId, shippingOrders]);
 
-  // Lắng nghe cảnh báo mới realtime
   useEffect(() => {
     const channel = supabase
       .channel('iot-alerts-popup')
@@ -162,6 +159,7 @@ export default function IoTPage() {
     }
   };
 
+  // Hàm lấy vị trí (Không hiển thị cảnh báo lỗi rườm rà)
   const handleGetCurrentLocation = () => {
     if ("geolocation" in navigator) {
       navigator.geolocation.getCurrentPosition(
@@ -170,14 +168,12 @@ export default function IoTPage() {
             lat: position.coords.latitude,
             lng: position.coords.longitude
           });
-          alert("Đã lấy vị trí hiện tại của bạn! (Lưu ý: Đây là vị trí trình duyệt, không phải của thiết bị IoT)");
         },
         (error) => {
-          alert("Không thể lấy vị trí: " + error.message);
+          console.error("Lỗi lấy vị trí: " + error.message);
+          // Nếu lỗi, vẫn giữ nguyên bản đồ mặc định
         }
       );
-    } else {
-      alert("Trình duyệt không hỗ trợ định vị.");
     }
   };
 
@@ -256,6 +252,10 @@ export default function IoTPage() {
   const isLive = secondsAgo < 60 * 20;
 
   const selectedOrder = shippingOrders.find(o => o.id === selectedOrderId);
+
+  // Vị trí hiển thị trên bản đồ (Ưu tiên GPS thật, nếu không có thì dùng vị trí Kho Hub)
+  const displayCoords = gpsCoords || DEFAULT_COORDS;
+  const isRealGPS = !!gpsCoords;
 
   return (
     <div className="space-y-6 relative">
@@ -336,12 +336,7 @@ export default function IoTPage() {
             <strong>{shippingOrders.length}</strong> đơn đang giao
           </p>
         </div>
-        <div className="text-right">
-          <p className="text-xs text-gray-500 font-medium">Cập nhật</p>
-          <p className="text-sm font-bold text-agro-dark">
-            {formatRelativeTime(latest.created_at)}
-          </p>
-        </div>
+        {/* ĐÃ BỎ PHẦN CẬP NHẬT 4 NGÀY TRƯỚC Ở ĐÂY */}
       </div>
 
       {/* Main temperature card */}
@@ -434,97 +429,86 @@ export default function IoTPage() {
               <span className="text-sm text-gray-500 italic">Không có đơn nào đang giao</span>
             )}
 
+            {/* NÚT XÁC ĐỊNH VỊ TRÍ (Hiển thị tinh tế) */}
             <button 
               onClick={handleGetCurrentLocation}
-              className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold px-3 py-2 rounded-lg flex items-center gap-1.5 transition-colors"
+              className="text-xs bg-agro-dark hover:bg-agro-dark/90 text-white font-bold px-3 py-2 rounded-lg flex items-center gap-1.5 transition-colors"
             >
-              <Navigation className="w-3.5 h-3.5" /> Lấy GPS
+              <Navigation className="w-3.5 h-3.5" /> Xác định vị trí hiện tại
             </button>
           </div>
         </div>
 
-        {gpsCoords ? (
-          <div className="space-y-3">
-            {selectedOrder && routePath.length > 0 && (
-              <div className="bg-agro-yellow/10 border border-agro-yellow/30 p-4 rounded-xl flex flex-col md:flex-row items-center justify-between gap-4">
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-2">
-                    <Route className="w-5 h-5 text-agro-dark" />
-                    <span className="text-sm font-semibold text-agro-dark">Quãng đường còn lại:</span>
-                    <span className="text-lg font-extrabold text-agro-dark">{distance} km</span>
-                  </div>
-                  <div className="w-px h-6 bg-gray-300 hidden md:block"></div>
-                  <div className="flex items-center gap-2">
-                    <Clock className="w-5 h-5 text-agro-dark" />
-                    <span className="text-sm font-semibold text-agro-dark">Dự kiến đến:</span>
-                    <span className="text-lg font-extrabold text-agro-dark">{eta} phút</span>
-                  </div>
+        <div className="space-y-3">
+          {selectedOrder && routePath.length > 0 && isRealGPS && (
+            <div className="bg-agro-yellow/10 border border-agro-yellow/30 p-4 rounded-xl flex flex-col md:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <Route className="w-5 h-5 text-agro-dark" />
+                  <span className="text-sm font-semibold text-agro-dark">Quãng đường còn lại:</span>
+                  <span className="text-lg font-extrabold text-agro-dark">{distance} km</span>
                 </div>
-                <div className="text-right md:text-right text-center">
-                  <p className="text-xs text-gray-500 font-semibold">Điểm đến</p>
-                  <p className="text-sm font-bold text-agro-dark max-w-[250px] truncate" title={selectedOrder.delivery_address}>
-                    {selectedOrder.delivery_address}
-                  </p>
+                <div className="w-px h-6 bg-gray-300 hidden md:block"></div>
+                <div className="flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-agro-dark" />
+                  <span className="text-sm font-semibold text-agro-dark">Dự kiến đến:</span>
+                  <span className="text-lg font-extrabold text-agro-dark">{eta} phút</span>
                 </div>
               </div>
-            )}
-
-            <div className="bg-gray-50 p-3 rounded-xl text-sm flex justify-between items-center">
-              <span className="text-gray-500 font-medium">Tọa độ hiện tại:</span>
-              <span className="font-bold text-agro-dark font-mono">
-                {gpsCoords.lat.toFixed(6)}, {gpsCoords.lng.toFixed(6)}
-              </span>
+              <div className="text-right md:text-right text-center">
+                <p className="text-xs text-gray-500 font-semibold">Điểm đến</p>
+                <p className="text-sm font-bold text-agro-dark max-w-[250px] truncate" title={selectedOrder.delivery_address}>
+                  {selectedOrder.delivery_address}
+                </p>
+              </div>
             </div>
-            
-            <div className="h-[450px] w-full rounded-xl overflow-hidden border border-gray-200 relative">
-              <MapContainer center={[gpsCoords.lat, gpsCoords.lng]} zoom={14} style={{ height: '100%', width: '100%' }}>
-                <TileLayer
-                  attribution='&copy; <a href="https://www.maptiler.com/copyright/">MapTiler</a>'
-                  url={`https://api.maptiler.com/maps/outdoor-v2/{z}/{x}/{y}.png?key=0kgv1m784H4kd86re01y`}
-                />
-                
-                {routePath.length > 0 && (
-                  <Polyline 
-                    positions={routePath} 
-                    pathOptions={{ color: '#0F4C3A', weight: 5, opacity: 0.8 }} 
-                  />
-                )}
+          )}
 
-                <Marker position={[gpsCoords.lat, gpsCoords.lng]} icon={truckIcon}>
+          <div className="bg-gray-50 p-3 rounded-xl text-sm flex justify-between items-center">
+            <span className="text-gray-500 font-medium">Tọa độ hiện tại:</span>
+            <span className="font-bold text-agro-dark font-mono">
+              {displayCoords.lat.toFixed(6)}, {displayCoords.lng.toFixed(6)}
+            </span>
+          </div>
+          
+          <div className="h-[450px] w-full rounded-xl overflow-hidden border border-gray-200 relative">
+            <MapContainer center={[displayCoords.lat, displayCoords.lng]} zoom={13} style={{ height: '100%', width: '100%' }}>
+              <TileLayer
+                attribution='&copy; <a href="https://www.maptiler.com/copyright/">MapTiler</a>'
+                url={`https://api.maptiler.com/maps/outdoor-v2/{z}/{x}/{y}.png?key=0kgv1m784H4kd86re01y`}
+              />
+              
+              {routePath.length > 0 && isRealGPS && (
+                <Polyline 
+                  positions={routePath} 
+                  pathOptions={{ color: '#0F4C3A', weight: 5, opacity: 0.8 }} 
+                />
+              )}
+
+              {/* Marker vị trí hiện tại */}
+              <Marker position={[displayCoords.lat, displayCoords.lng]} icon={truckIcon}>
+                <Popup>
+                  <div className="font-sans text-center">
+                    <p className="font-bold text-agro-dark">Vị trí hiện tại</p>
+                    <p className="text-xs text-gray-500">Nhiệt độ: {latest.temperature}°C</p>
+                  </div>
+                </Popup>
+              </Marker>
+
+              {/* Marker điểm đến */}
+              {selectedOrder && selectedOrder.delivery_lat && isRealGPS && (
+                <Marker position={[selectedOrder.delivery_lat, selectedOrder.delivery_lng]}>
                   <Popup>
                     <div className="font-sans text-center">
-                      <p className="font-bold text-agro-dark">Xe đang ở đây</p>
-                      <p className="text-xs text-gray-500">Nhiệt độ: {latest.temperature}°C</p>
+                      <p className="font-bold text-red-600">Điểm giao hàng</p>
+                      <p className="text-xs text-gray-600">{selectedOrder.delivery_address}</p>
                     </div>
                   </Popup>
                 </Marker>
-
-                {selectedOrder && selectedOrder.delivery_lat && (
-                  <Marker position={[selectedOrder.delivery_lat, selectedOrder.delivery_lng]}>
-                    <Popup>
-                      <div className="font-sans text-center">
-                        <p className="font-bold text-red-600">Điểm giao hàng</p>
-                        <p className="text-xs text-gray-600">{selectedOrder.delivery_address}</p>
-                      </div>
-                    </Popup>
-                  </Marker>
-                )}
-              </MapContainer>
-            </div>
+              )}
+            </MapContainer>
           </div>
-        ) : (
-          <div className="text-center py-12 bg-gray-50 rounded-xl border border-dashed border-gray-300">
-            <MapPin className="w-10 h-10 text-gray-400 mx-auto mb-2" />
-            <p className="text-sm text-gray-500 font-medium">Chưa có dữ liệu GPS từ thiết bị.</p>
-            <p className="text-xs text-gray-400 mt-1">Vui lòng kiểm tra kết nối module LC78G.</p>
-            <button 
-              onClick={handleGetCurrentLocation}
-              className="mt-4 bg-agro-dark hover:bg-agro-dark/90 text-white font-bold px-4 py-2 rounded-xl text-sm"
-            >
-              Dùng vị trí của tôi để test
-            </button>
-          </div>
-        )}
+        </div>
       </div>
 
       {/* Shipping orders */}
@@ -558,7 +542,6 @@ export default function IoTPage() {
                 ? getTemperatureStatusFromTemp(order.latest_temp)
                 : null;
               const isWarning = tempStatus && tempStatus.level !== 'ideal';
-              const orderAlerts = alertsByOrder[order.order_code] || [];
               const isSelected = selectedOrderId === order.id;
 
               return (
