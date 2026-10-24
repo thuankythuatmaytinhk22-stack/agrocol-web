@@ -20,17 +20,16 @@ const EMPTY_FORM = {
   hub_address: HUB_ADDRESS,
 };
 
-// SỬA: Trả về số thực, làm tròn 2 chữ số thập phân
+// Hàm tính số thùng: Làm tròn lên (Ví dụ: 351kg -> 2 thùng, 700kg -> 2 thùng)
 const customCalcBoxes = (weight) => {
   const w = parseFloat(weight) || 0;
   if (w <= 0) return 0;
-  return Number((w / WEIGHT_PER_BOX).toFixed(2)); 
+  return Math.ceil(w / WEIGHT_PER_BOX); 
 };
 
+// Hàm tính tiền: Số thùng x 400.000đ
 const customCalcCost = (boxes) => {
-  // Vì số thùng có thể lẻ, nên chi phí cũng sẽ lẻ theo
-  // Nếu bạn muốn làm tròn chi phí lên, hãy dùng Math.ceil(boxes * PRICE_PER_BOX)
-  return Math.round(boxes * PRICE_PER_BOX);
+  return boxes * PRICE_PER_BOX;
 };
 
 const getProductInfo = (type) => {
@@ -222,9 +221,8 @@ export default function BookingPage() {
               <h3 className="text-4xl font-extrabold text-agro-yellow">{cost.toLocaleString('vi-VN')}đ</h3>
               <hr className="my-4 border-white/20" />
               <p className="text-sm opacity-80 font-medium">Số thùng ước tính</p>
-              {/* Hiển thị số thùng, nếu là số lẻ thì vẫn hiện */}
               <p className="text-2xl font-bold text-white">{boxes > 0 ? `${boxes} thùng` : 'Chưa xác định'}</p>
-              <p className="text-xs opacity-60 mt-2 italic">* Quy cách: {WEIGHT_PER_BOX}kg / thùng.</p>
+              <p className="text-xs opacity-60 mt-2 italic">* Quy cách: {WEIGHT_PER_BOX}kg / thùng. Làm tròn lên.</p>
             </div>
 
             {/* Thẻ nhiệt độ hiện tại */}
