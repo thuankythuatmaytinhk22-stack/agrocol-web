@@ -26,10 +26,11 @@ import {
   ArrowRight,
   Truck,
   X,
-  Navigation, // Icon mới cho GPS
-  Map,        // Icon mới cho bản đồ
+  Navigation,
+  Map,
+  Route,
 } from 'lucide-react';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -39,6 +40,14 @@ L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
   iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+});
+
+// Icon cho xe tải
+const truckIcon = new L.DivIcon({
+  className: 'custom-div-icon',
+  html: `<div style="background-color:#0F4C3A; color:white; width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:3px solid white; box-shadow:0 3px 10px rgba(0,0,0,0.3);"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg></div>`,
+  iconSize: [36, 36],
+  iconAnchor: [18, 18],
 });
 
 export default function IoTPage() {
@@ -53,6 +62,12 @@ export default function IoTPage() {
   // State cho GPS
   const [gpsCoords, setGpsCoords] = useState(null);
 
+  // State cho Theo dõi Hành trình
+  const [selectedOrderId, setSelectedOrderId] = useState('');
+  const [routePath, setRoutePath] = useState([]); 
+  const [eta, setEta] = useState(null); 
+  const [distance, setDistance] = useState(null); 
+
   useEffect(() => {
     loadAlerts();
     const interval = setInterval(loadAlerts, 15000);
@@ -65,6 +80,44 @@ export default function IoTPage() {
       setGpsCoords({ lat: latest.gps_lat, lng: latest.gps_lng });
     }
   }, [latest]);
+
+  // Tự động chọn đơn hàng đầu tiên nếu có đơn đang giao
+  useEffect(() => {
+    if (shippingOrders.length > 0 && !selectedOrderId) {
+      setSelectedOrderId(shippingOrders[0].id);
+    }
+  }, [shippingOrders]);
+
+  // Tự động vẽ đường đi thực tế khi có GPS và chọn đơn
+  useEffect(() => {
+    const fetchRoute = async () => {
+      if (!gpsCoords || !selectedOrderId) return;
+      
+      const order = shippingOrders.find(o => o.id === selectedOrderId);
+      if (!order || !order.delivery_lat || !order.delivery_lng) return;
+
+      try {
+        const res = await fetch(
+          `https://router.project-osrm.org/route/v1/driving/${gpsCoords.lng},${gpsCoords.lat};${order.delivery_lng},${order.delivery_lat}?overview=full&geometries=geojson`
+        );
+        const data = await res.json();
+        if (data.routes && data.routes[0]) {
+          const coordsArray = data.routes[0].geometry.coordinates.map((c) => [c[1], c[0]]);
+          setRoutePath(coordsArray);
+          setDistance((data.routes[0].distance / 1000).toFixed(1));
+          setEta(Math.round(data.routes[0].duration / 60));
+        }
+      } catch (err) {
+        console.error('Lỗi lấy lộ trình:', err);
+        setRoutePath([
+          [gpsCoords.lat, gpsCoords.lng], 
+          [order.delivery_lat, order.delivery_lng]
+        ]);
+      }
+    };
+
+    fetchRoute();
+  }, [gpsCoords, selectedOrderId, shippingOrders]);
 
   // Lắng nghe cảnh báo mới realtime
   useEffect(() => {
@@ -109,7 +162,6 @@ export default function IoTPage() {
     }
   };
 
-  // Hàm giả lập lấy vị trí hiện tại (dùng khi test không có GPS thật)
   const handleGetCurrentLocation = () => {
     if ("geolocation" in navigator) {
       navigator.geolocation.getCurrentPosition(
@@ -202,6 +254,8 @@ export default function IoTPage() {
     (Date.now() - new Date(latest.created_at).getTime()) / 1000
   );
   const isLive = secondsAgo < 60 * 20;
+
+  const selectedOrder = shippingOrders.find(o => o.id === selectedOrderId);
 
   return (
     <div className="space-y-6 relative">
@@ -356,42 +410,105 @@ export default function IoTPage() {
         </div>
       </div>
 
-      {/* === BẢN ĐỒ GPS REALTIME === */}
+      {/* === BẢN ĐỒ GPS REALTIME & THEO DÕI HÀNH TRÌNH === */}
       <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
           <h3 className="font-bold text-agro-dark flex items-center gap-2">
-            <Map className="w-5 h-5" /> Vị trí GPS Realtime
+            <Map className="w-5 h-5" /> Theo dõi Hành trình Realtime
           </h3>
-          <button 
-            onClick={handleGetCurrentLocation}
-            className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors"
-          >
-            <Navigation className="w-3.5 h-3.5" /> Lấy vị trí hiện tại
-          </button>
+          
+          <div className="flex items-center gap-3">
+            {shippingOrders.length > 0 ? (
+              <select 
+                value={selectedOrderId} 
+                onChange={(e) => setSelectedOrderId(e.target.value)}
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold text-agro-dark outline-none focus:ring-2 focus:ring-agro-dark bg-gray-50"
+              >
+                {shippingOrders.map(order => (
+                  <option key={order.id} value={order.id}>
+                    Đơn {order.order_code} ({order.customer_name})
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="text-sm text-gray-500 italic">Không có đơn nào đang giao</span>
+            )}
+
+            <button 
+              onClick={handleGetCurrentLocation}
+              className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold px-3 py-2 rounded-lg flex items-center gap-1.5 transition-colors"
+            >
+              <Navigation className="w-3.5 h-3.5" /> Lấy GPS
+            </button>
+          </div>
         </div>
 
         {gpsCoords ? (
           <div className="space-y-3">
+            {selectedOrder && routePath.length > 0 && (
+              <div className="bg-agro-yellow/10 border border-agro-yellow/30 p-4 rounded-xl flex flex-col md:flex-row items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <Route className="w-5 h-5 text-agro-dark" />
+                    <span className="text-sm font-semibold text-agro-dark">Quãng đường còn lại:</span>
+                    <span className="text-lg font-extrabold text-agro-dark">{distance} km</span>
+                  </div>
+                  <div className="w-px h-6 bg-gray-300 hidden md:block"></div>
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-5 h-5 text-agro-dark" />
+                    <span className="text-sm font-semibold text-agro-dark">Dự kiến đến:</span>
+                    <span className="text-lg font-extrabold text-agro-dark">{eta} phút</span>
+                  </div>
+                </div>
+                <div className="text-right md:text-right text-center">
+                  <p className="text-xs text-gray-500 font-semibold">Điểm đến</p>
+                  <p className="text-sm font-bold text-agro-dark max-w-[250px] truncate" title={selectedOrder.delivery_address}>
+                    {selectedOrder.delivery_address}
+                  </p>
+                </div>
+              </div>
+            )}
+
             <div className="bg-gray-50 p-3 rounded-xl text-sm flex justify-between items-center">
               <span className="text-gray-500 font-medium">Tọa độ hiện tại:</span>
               <span className="font-bold text-agro-dark font-mono">
                 {gpsCoords.lat.toFixed(6)}, {gpsCoords.lng.toFixed(6)}
               </span>
             </div>
-            <div className="h-[400px] w-full rounded-xl overflow-hidden border border-gray-200">
-              <MapContainer center={[gpsCoords.lat, gpsCoords.lng]} zoom={15} style={{ height: '100%', width: '100%' }}>
+            
+            <div className="h-[450px] w-full rounded-xl overflow-hidden border border-gray-200 relative">
+              <MapContainer center={[gpsCoords.lat, gpsCoords.lng]} zoom={14} style={{ height: '100%', width: '100%' }}>
                 <TileLayer
                   attribution='&copy; <a href="https://www.maptiler.com/copyright/">MapTiler</a>'
                   url={`https://api.maptiler.com/maps/outdoor-v2/{z}/{x}/{y}.png?key=0kgv1m784H4kd86re01y`}
                 />
-                <Marker position={[gpsCoords.lat, gpsCoords.lng]}>
+                
+                {routePath.length > 0 && (
+                  <Polyline 
+                    positions={routePath} 
+                    pathOptions={{ color: '#0F4C3A', weight: 5, opacity: 0.8 }} 
+                  />
+                )}
+
+                <Marker position={[gpsCoords.lat, gpsCoords.lng]} icon={truckIcon}>
                   <Popup>
                     <div className="font-sans text-center">
-                      <p className="font-bold text-agro-dark">{deviceId}</p>
-                      <p className="text-xs text-gray-500">Đang ở đây</p>
+                      <p className="font-bold text-agro-dark">Xe đang ở đây</p>
+                      <p className="text-xs text-gray-500">Nhiệt độ: {latest.temperature}°C</p>
                     </div>
                   </Popup>
                 </Marker>
+
+                {selectedOrder && selectedOrder.delivery_lat && (
+                  <Marker position={[selectedOrder.delivery_lat, selectedOrder.delivery_lng]}>
+                    <Popup>
+                      <div className="font-sans text-center">
+                        <p className="font-bold text-red-600">Điểm giao hàng</p>
+                        <p className="text-xs text-gray-600">{selectedOrder.delivery_address}</p>
+                      </div>
+                    </Popup>
+                  </Marker>
+                )}
               </MapContainer>
             </div>
           </div>
@@ -442,66 +559,56 @@ export default function IoTPage() {
                 : null;
               const isWarning = tempStatus && tempStatus.level !== 'ideal';
               const orderAlerts = alertsByOrder[order.order_code] || [];
+              const isSelected = selectedOrderId === order.id;
 
               return (
-                <Link
+                <div
                   key={order.id}
-                  to={`/tracking/${order.order_code}`}
-                  className={`block p-4 rounded-xl border-2 transition-all hover:shadow-md ${
-                    isWarning
-                      ? 'bg-red-50 border-red-200'
-                      : 'bg-white border-gray-100 hover:border-agro-yellow'
+                  onClick={() => setSelectedOrderId(order.id)}
+                  className={`p-4 rounded-xl border-2 transition-all cursor-pointer ${
+                    isSelected ? 'bg-agro-dark text-white border-agro-dark shadow-md' :
+                    isWarning ? 'bg-red-50 border-red-200' : 'bg-white border-gray-100 hover:border-agro-yellow'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-2">
-                        <Package className="w-4 h-4 text-agro-dark flex-shrink-0" />
-                        <p className="font-bold text-agro-dark">
-                          {order.order_code}
-                        </p>
-                        {isWarning && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-[10px] font-bold">
-                            <AlertTriangle className="w-3 h-3" />
-                            CẢNH BÁO
-                          </span>
-                        )}
+                        <Package className={`w-4 h-4 ${isSelected ? 'text-agro-yellow' : 'text-agro-dark'}`} />
+                        <p className={`font-bold ${isSelected ? 'text-white' : 'text-agro-dark'}`}>{order.order_code}</p>
+                        {isSelected && <span className="bg-agro-yellow text-agro-dark text-[10px] font-bold px-2 py-0.5 rounded-full">Đang theo dõi</span>}
                       </div>
-                      <p className="text-xs text-gray-600 mb-1 flex items-center gap-1">
+                      <p className={`text-xs mb-1 flex items-center gap-1 ${isSelected ? 'text-gray-300' : 'text-gray-600'}`}>
                         <MapPin className="w-3 h-3" />
-                        {order.pickup_address} → {order.delivery_address}
+                        {order.delivery_address}
                       </p>
-                      <p className="text-xs text-gray-500">
-                        {order.customer_name} · {order.product_type} ·{' '}
-                        {order.boxes} thùng
+                      <p className={`text-xs ${isSelected ? 'text-gray-400' : 'text-gray-500'}`}>
+                        {order.customer_name} · {order.product_type} · {order.boxes} thùng
                       </p>
                     </div>
 
                     <div className="text-right flex-shrink-0">
-                      <p className="text-xs text-gray-500 font-semibold mb-1">
+                      <p className={`text-xs font-semibold mb-1 ${isSelected ? 'text-gray-300' : 'text-gray-500'}`}>
                         Nhiệt độ
                       </p>
                       {order.latest_temp ? (
                         <>
-                          <p
-                            className={`text-2xl font-extrabold ${
-                              isWarning ? 'text-red-600' : 'text-green-600'
-                            }`}
-                          >
+                          <p className={`text-2xl font-extrabold ${
+                              isSelected ? 'text-agro-yellow' : isWarning ? 'text-red-600' : 'text-green-600'
+                            }`}>
                             {order.latest_temp.toFixed(1)}°C
                           </p>
-                          <p className="text-[10px] text-gray-500 mt-0.5">
+                          <p className={`text-[10px] mt-0.5 ${isSelected ? 'text-gray-400' : 'text-gray-500'}`}>
                             {formatRelativeTime(order.temp_updated_at)}
                           </p>
                         </>
                       ) : (
-                        <p className="text-sm text-gray-400 italic">
+                        <p className={`text-sm italic ${isSelected ? 'text-gray-400' : 'text-gray-400'}`}>
                           Chưa có dữ liệu
                         </p>
                       )}
                     </div>
                   </div>
-                </Link>
+                </div>
               );
             })}
           </div>
