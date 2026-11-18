@@ -20,9 +20,9 @@ KIẾN THỨC CỐT LÕI:
 
 QUY TẮC TRẢ LỜI (CỰC KỲ QUAN TRỌNG):
 1. KHÔNG TỰ TÍNH TOÁN số thùng hay số tiền. Hệ thống sẽ tự tính.
-2. KHÔNG TỰ BỊA số liệu. Nếu khách cung cấp thông tin gì, hãy xác nhận lại thông tin đó.
+2. KHÔNG TỰ BỊA số liệu.
 3. Nếu khách cung cấp ngày giờ (ví dụ: "10h sáng ngày 19/11/2026"), hãy tự động chuyển đổi sang định dạng YYYY-MM-DD và HH:mm (Ví dụ: "2026-11-19" và "10:00").
-4. KHI VÀ CHỈ KHI khách đã cung cấp ĐỦ 5 thông tin (Tên, SĐT, Loại hàng, Khối lượng, Địa chỉ), BẠN PHẢI trả lời xác nhận và BẮT BUỘC chèn khối JSON ở cuối cùng:
+4. KHI VÀ CHỈ KHI khách đã cung cấp ĐỦ 5 thông tin (Tên, SĐT, Loại hàng, Khối lượng, Địa chỉ), BẠN PHẢI trả lời xác nhận: "Mình đã ghi nhận đủ thông tin. Vì cần tọa độ chính xác, bạn vui lòng chọn điểm giao trên bản đồ ở bước tiếp theo nhé!" VÀ BẮT BUỘC chèn khối JSON ở cuối cùng:
 <<<ORDER_DATA>>>
 {"is_ready": true, "customer_name": "Tên khách", "customer_phone": "SĐT", "product_type": "Sản phẩm", "weight": 300, "delivery_address": "Địa chỉ", "send_date": "YYYY-MM-DD", "pickup_time": "HH:mm"}
 <<<END_ORDER_DATA>>>
@@ -66,7 +66,7 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         model: 'openai/gpt-oss-120b',
         messages,
-        temperature: 0.2, // Hạ thấp để AI bám sát luật
+        temperature: 0.2, // Hạ nhiệt độ để AI bám sát luật
         max_tokens: 300,
       }),
     });

@@ -66,7 +66,6 @@ export default function ChatWidget() {
         },
       ]);
     } finally {
-      // LUÔN LUÔN mở khóa chat dù thành công hay thất bại
       setBusy(false); 
     }
   };
@@ -94,7 +93,6 @@ export default function ChatWidget() {
     <div className="fixed bottom-5 right-5 z-[60] font-sans">
       {open && (
         <div className="mb-3 w-[min(100vw-2rem,400px)] h-[560px] bg-white rounded-2xl shadow-2xl border border-gray-100 flex flex-col overflow-hidden">
-          {/* Header */}
           <div className="bg-agro-dark text-white px-4 py-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="w-9 h-9 rounded-xl bg-agro-yellow text-agro-dark flex items-center justify-center">
@@ -113,7 +111,6 @@ export default function ChatWidget() {
             </button>
           </div>
 
-          {/* Messages */}
           <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-agro-bg">
             {messages.map((msg, i) => (
               <div key={i} className={`flex items-start gap-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -157,7 +154,6 @@ export default function ChatWidget() {
             <div ref={bottomRef} />
           </div>
 
-          {/* Input */}
           <div className="p-3 bg-white border-t border-gray-100">
             <form onSubmit={(e) => { e.preventDefault(); send(); }} className="flex gap-2">
               <input
