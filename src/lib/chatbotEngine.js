@@ -1,7 +1,6 @@
 import { calcBoxes, calcCost, formatVnd, matchProduct } from './coldChain';
 import { supabase } from './supabaseClient';
 
-// Bắt buộc phải có chữ kg để tránh bắt nhầm SĐT
 const KG_RE = /(\d+(?:[.,]\d+)?)\s*(kg|kí|ki|ký|kilogram)/i; 
 const TON_RE = /(\d+(?:[.,]\d+)?)\s*(tấn|tan)/i;
 const FROM_TO_RE = /từ\s+(.+?)\s+(?:đi|đến|tới|ra|vào)\s+(.+?)(?:[.,!?]|$)/i;
@@ -30,7 +29,6 @@ function localExtract(text) {
   const { pickup, delivery } = parseRoute(text);
   const phoneMatch = text.match(PHONE_RE);
   
-  // Bắt tên: Nếu có dạng "tên là X", "tôi là X", "tên X"
   const nameMatch = text.match(/(?:tên|tôi|mình)\s*(?:là|:)?\s*([A-ZÀ-Ỹ][a-zà-ỹ]+(?:\s+[A-ZÀ-Ỹ][a-zà-ỹ]+)*)/i);
   
   return {
@@ -94,7 +92,6 @@ export function quoteFromSlots(slots) {
   const boxes = calcBoxes(weight);
   const cost = calcCost(boxes);
   
-  // CHỈ COMPLETE KHI CÓ ĐỦ 5 THÔNG TIN
   const complete = Boolean(product && weight > 0 && slots.customer_name && slots.customer_phone && slots.delivery_address);
 
   return {
@@ -108,6 +105,8 @@ export function quoteFromSlots(slots) {
     delivery_address: slots.delivery_address || '',
     customer_name: slots.customer_name || '',
     customer_phone: slots.customer_phone || '',
+    send_date: slots.send_date || '',
+    pickup_time: slots.pickup_time || '',
   };
 }
 
@@ -121,6 +120,8 @@ export async function answerChat(userText, prevSlots = {}, chatHistory = []) {
     delivery_address: local.delivery_address || prevSlots.delivery_address || '',
     customer_name: local.customer_name || prevSlots.customer_name || '',
     customer_phone: local.customer_phone || prevSlots.customer_phone || '',
+    send_date: prevSlots.send_date || '',
+    pickup_time: prevSlots.pickup_time || '',
   };
 
   let aiText = await callAI(userText, merged, chatHistory);
@@ -138,6 +139,8 @@ export async function answerChat(userText, prevSlots = {}, chatHistory = []) {
         if (parsedData.product_type) merged.product_type = parsedData.product_type;
         if (parsedData.weight) merged.weight = parsedData.weight;
         if (parsedData.delivery_address) merged.delivery_address = parsedData.delivery_address;
+        if (parsedData.send_date) merged.send_date = parsedData.send_date;
+        if (parsedData.pickup_time) merged.pickup_time = parsedData.pickup_time;
       }
     } catch (e) {
       console.error("Lỗi parse JSON:", e);

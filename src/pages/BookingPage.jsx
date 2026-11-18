@@ -44,12 +44,18 @@ export default function BookingPage() {
 
   const product = getProductInfo(formData.product_type);
 
-  // --- TỰ ĐỘNG ĐIỀN TỪ CHATBOT ---
   useEffect(() => {
     const draft = sessionStorage.getItem('agrocold_booking_draft');
     if (draft) {
       try {
         const data = JSON.parse(draft);
+        
+        let formattedDate = '';
+        let formattedTime = '';
+        
+        if (data.send_date) formattedDate = data.send_date;
+        if (data.pickup_time) formattedTime = data.pickup_time;
+
         setFormData(prev => ({
           ...prev,
           product_type: data.product_type || '',
@@ -57,6 +63,8 @@ export default function BookingPage() {
           customer_name: data.customer_name || '',
           customer_phone: data.customer_phone || '',
           delivery_address: data.delivery_address || '',
+          send_date: formattedDate,
+          pickup_time: formattedTime,
         }));
 
         if (data.weight) {

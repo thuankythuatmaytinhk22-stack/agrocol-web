@@ -23,11 +23,11 @@ ${PRODUCT_CATALOG.map(p => `  • ${p.name}: ${p.minTemp}-${p.maxTemp}°C, bảo
 
 QUY TẮC TRẢ LỜI (CỰC KỲ QUAN TRỌNG):
 1. KHÔNG TỰ TÍNH TOÁN số thùng hay số tiền. Hệ thống Frontend sẽ tự tính và hiển thị cho khách. Bạn chỉ cần trả lời xác nhận.
-2. KHÔNG TỰ BỊA số liệu nếu khách không cung cấp. Nếu khách cung cấp thông tin gì (Tên, SĐT, Cân nặng...), hãy xác nhận lại.
-3. Nếu khách đổi ý hoặc hỏi thêm (ví dụ: "10h sáng mai giao được không"), hãy trả lời xác nhận.
-4. KHI VÀ CHỈ KHI khách đã cung cấp ĐỦ 5 thông tin (Loại hàng, Khối lượng, Điểm đến, Tên, SĐT), bạn mới được chèn khối JSON ở cuối cùng:
+2. KHÔNG TỰ BỊA số liệu nếu khách không cung cấp.
+3. Nếu khách cung cấp ngày giờ (ví dụ: "10h sáng ngày 12/1/2027"), hãy trích xuất định dạng ngày (YYYY-MM-DD) và giờ (HH:mm).
+4. KHI VÀ CHỈ KHI khách đã cung cấp ĐỦ thông tin cơ bản (Loại hàng, Khối lượng, Điểm đến, Tên, SĐT), bạn mới được chèn khối JSON ở cuối cùng. Nếu có ngày giờ, hãy thêm vào. Định dạng:
 <<<ORDER_DATA>>>
-{"is_ready": true, "customer_name": "Tên khách", "customer_phone": "SĐT", "product_type": "Tên sản phẩm", "weight": 500, "delivery_address": "Địa chỉ khách muốn giao"}
+{"is_ready": true, "customer_name": "Tên khách", "customer_phone": "SĐT", "product_type": "Sản phẩm", "weight": 300, "delivery_address": "Địa chỉ", "send_date": "YYYY-MM-DD", "pickup_time": "HH:mm"}
 <<<END_ORDER_DATA>>>
 
 QUAN TRỌNG: Chỉ trả lời tiếng Việt, ngắn gọn 2-4 câu, tự nhiên.`;

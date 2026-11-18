@@ -80,6 +80,8 @@ export default function ChatWidget() {
         delivery_address: q.delivery_address,
         customer_name: q.customer_name,
         customer_phone: q.customer_phone,
+        send_date: q.send_date || '',     
+        pickup_time: q.pickup_time || '', 
       })
     );
     setOpen(false);
@@ -90,7 +92,6 @@ export default function ChatWidget() {
     <div className="fixed bottom-5 right-5 z-[60] font-sans">
       {open && (
         <div className="mb-3 w-[min(100vw-2rem,400px)] h-[560px] bg-white rounded-2xl shadow-2xl border border-gray-100 flex flex-col overflow-hidden">
-          {/* Header */}
           <div className="bg-agro-dark text-white px-4 py-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="w-9 h-9 rounded-xl bg-agro-yellow text-agro-dark flex items-center justify-center">
@@ -113,7 +114,6 @@ export default function ChatWidget() {
             </button>
           </div>
 
-          {/* Messages */}
           <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-agro-bg">
             {messages.map((msg, i) => (
               <div
@@ -171,7 +171,6 @@ export default function ChatWidget() {
             <div ref={bottomRef} />
           </div>
 
-          {/* Quick suggestions */}
           <div className="px-3 pt-2 pb-1 bg-white border-t border-gray-100">
             <div className="flex flex-wrap gap-1.5 mb-2">
               {QUICK_SUGGESTIONS.map((s) => (
@@ -187,7 +186,6 @@ export default function ChatWidget() {
             </div>
           </div>
 
-          {/* Input */}
           <div className="p-3 bg-white">
             <form
               onSubmit={(e) => {
@@ -216,7 +214,6 @@ export default function ChatWidget() {
         </div>
       )}
 
-      {/* Floating button */}
       <button
         onClick={() => setOpen((v) => !v)}
         className="w-14 h-14 rounded-full bg-agro-yellow hover:bg-yellow-500 text-agro-dark shadow-lg flex items-center justify-center transition-transform hover:scale-105 relative"
