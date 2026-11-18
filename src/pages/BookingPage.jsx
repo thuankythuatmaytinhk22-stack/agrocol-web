@@ -1,5 +1,4 @@
-// src/pages/BookingPage.jsx
-import { useState, useEffect } from 'react'; // Nhớ thêm useEffect
+import { useState, useEffect } from 'react';
 import { createOrder, cancelOrder } from '../services/orderService';
 import { CheckCircle, MapPin, AlertCircle, Phone } from 'lucide-react';
 import LocationPicker from '../components/map/LocationPicker';
@@ -45,7 +44,7 @@ export default function BookingPage() {
 
   const product = getProductInfo(formData.product_type);
 
-  // --- ĐOẠN CODE MỚI: TỰ ĐỘNG ĐIỀN TỪ CHATBOT ---
+  // --- TỰ ĐỘNG ĐIỀN TỪ CHATBOT ---
   useEffect(() => {
     const draft = sessionStorage.getItem('agrocold_booking_draft');
     if (draft) {
@@ -60,21 +59,18 @@ export default function BookingPage() {
           delivery_address: data.delivery_address || '',
         }));
 
-        // Tính tiền và số thùng luôn
         if (data.weight) {
           const calculatedBoxes = customCalcBoxes(data.weight);
           setBoxes(calculatedBoxes);
           setCost(customCalcCost(calculatedBoxes));
         }
         
-        // Xóa bộ nhớ tạm sau khi đã lấy
         sessionStorage.removeItem('agrocold_booking_draft');
       } catch (e) {
         console.error("Lỗi đọc dữ liệu từ Chatbot", e);
       }
     }
   }, []);
-  // -----------------------------------------------
 
   const handleChange = (e) => {
     const { name, value } = e.target;
