@@ -7,7 +7,7 @@ const FROM_TO_RE = /từ\s+(.+?)\s+(?:đi|đến|tới|ra|vào)\s+(.+?)(?:[.,!?]
 const CITY_RE = /(đắk lắk|dak lak|đà lạt|da lat|lâm đồng|hà nội|ha noi|tp\.?hcm|hồ chí minh|sài gòn|bình điền|đà nẵng|cần thơ|nghệ an|huế|hải phòng|quảng ninh|buôn ma thuột)/i;
 const PHONE_RE = /(0\d{9,10})/;
 
-// QUY CÁCH MỚI: 350kg/thùng, giá 400.000đ/thùng
+// QUY CÁCH: 350kg/thùng, giá 400.000đ/thùng
 const PRICE_PER_BOX = 400000;
 const WEIGHT_PER_BOX = 350;
 
@@ -44,10 +44,8 @@ function localExtract(text) {
 
 /**
  * Gọi API Route nội bộ /api/chat (Vercel Serverless Function)
- * -> Server gọi Groq AI, key không bị lộ ra frontend
  */
 async function callAI(userText, prevSlots, chatHistory = []) {
-  // Tra cứu đơn hàng nếu user hỏi về đơn
   let orderContext = '';
   const phoneInText = userText.match(PHONE_RE);
   if (phoneInText || (prevSlots.customer_phone && /đơn|hàng|kiểm tra|xem|tra cứu/i.test(userText))) {
@@ -140,26 +138,29 @@ export async function answerChat(userText, prevSlots = {}, chatHistory = []) {
   // 2. Gọi AI qua API Route (ưu tiên)
   let aiText = await callAI(userText, merged, chatHistory);
   
-  // --- ĐOẠN CODE MỚI: BÓC TÁCH JSON TỪ AI ---
-  let aiQuote = null;
+  // --- ĐOẠN CODE BÓC TÁCH JSON TỪ AI (LẤY TÊN & SĐT) ---
   if (aiText && aiText.includes('<<<ORDER_DATA>>>')) {
     const parts = aiText.split('<<<ORDER_DATA>>>');
-    aiText = parts[0].trim(); // Lấy phần text trả lời khách
+    aiText = parts[0].trim(); // Lấy phần text trả lời khách, bỏ phần JSON đi
     
     try {
       const jsonStr = parts[1].split('<<<END_ORDER_DATA>>>')[0].trim();
       const parsedData = JSON.parse(jsonStr);
+      
       if (parsedData.is_ready) {
-        // Cập nhật lại thông tin khách hàng từ AI (nếu AI bóc được tên/SĐT mà Regex bỏ sót)
+        // Cập nhật lại thông tin khách hàng mà AI đã hỏi được
         merged.customer_name = parsedData.customer_name || merged.customer_name;
         merged.customer_phone = parsedData.customer_phone || merged.customer_phone;
-        aiQuote = parsedData;
+        // Cập nhật thêm sản phẩm/khối lượng nếu Regex local bị sót
+        if (parsedData.product_type) merged.product_type = parsedData.product_type;
+        if (parsedData.weight) merged.weight = parsedData.weight;
+        if (parsedData.delivery_address) merged.delivery_address = parsedData.delivery_address;
       }
     } catch (e) {
       console.error("Lỗi parse JSON đặt hàng từ AI:", e);
     }
   }
-  // ------------------------------------------
+  // --------------------------------------------------------
 
   if (aiText) {
     const quote = quoteFromSlots(merged);
