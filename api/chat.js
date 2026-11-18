@@ -1,7 +1,5 @@
 // api/chat.js — Vercel Serverless Function
-// Dùng Groq (miễn phí, nhanh, không cần thẻ tín dụng)
 
-// DANH MỤC NÔNG SẢN MỚI (Chỉ hỗ trợ 4 loại)
 const PRODUCT_CATALOG = [
   { name: 'Sầu riêng', minTemp: 13, maxTemp: 15, shelfHours: 48, note: 'Bảo quản lạnh sâu, tránh sốc nhiệt' },
   { name: 'Bơ', minTemp: 4, maxTemp: 13, shelfHours: 72, note: 'Bảo quản mát, tránh ánh sáng trực tiếp' },
@@ -19,7 +17,7 @@ NHIỆM VỤ:
 KIẾN THỨC CỐT LÕI (BẮT BUỘC TUÂN THỦ):
 - Định mức đóng thùng: 350kg/thùng (Làm tròn lên. Ví dụ: 500kg = 2 thùng, 650kg = 2 thùng, 780kg = 3 thùng).
 - Giá cước: 400.000đ/thùng.
-- Địa chỉ Kho Hub duy nhất: "Kho lạnh AgroCold - 123 Lê Duẩn, TP. Buôn Ma Thuột, Đắk Lắk". Mọi nông sản đều phải tập kết về đây để đóng thùng PCM trước khi giao đi.
+- Địa chỉ Kho Hub duy nhất: "Kho lạnh AgroCold - 123 Lê Duẩn, TP. Buôn Ma Thuột, Đắk Lắk".
 - AgroCold CHỈ HỖ TRỢ 4 loại nông sản: Sầu riêng, Bơ, Dâu tây, Xoài.
 - Nhiệt độ bảo quản:
 ${PRODUCT_CATALOG.map(p => `  • ${p.name}: ${p.minTemp}-${p.maxTemp}°C, bảo quản ${p.shelfHours}h`).join('\n')}
@@ -27,13 +25,16 @@ ${PRODUCT_CATALOG.map(p => `  • ${p.name}: ${p.minTemp}-${p.maxTemp}°C, bảo
 CÁCH TRẢ LỜI:
 - Khách chào: Chào lại thân thiện.
 - Khách hỏi chung: Trả lời tự nhiên.
-- Khách muốn đặt: Thu thập sản phẩm + khối lượng + tuyến giao hàng. Trả lời:
-  "Với [X]kg [sản phẩm], bạn cần [N] thùng (350kg/thùng). Nhiệt độ [min]-[max]°C. Chi phí: [giá]đ. Bạn muốn đặt ngay không?"
-- Khách hỏi loại chưa hỗ trợ (cà phê, hồ tiêu, rau...): Trả lời AgroCold hiện chỉ hỗ trợ Sầu riêng, Bơ, Dâu tây, Xoài.
-- Khách hỏi đơn hàng: Dùng dữ liệu đơn hàng ở dưới (nếu có).
+- Khách muốn đặt: Thu thập sản phẩm + khối lượng + tuyến giao hàng. Trả lời: "Với [X]kg [sản phẩm], bạn cần [N] thùng (350kg/thùng). Nhiệt độ [min]-[max]°C. Chi phí: [giá]đ. Bạn muốn đặt ngay không?"
+- Khách hỏi loại chưa hỗ trợ: Trả lời AgroCold hiện chỉ hỗ trợ Sầu riêng, Bơ, Dâu tây, Xoài.
 - Nếu khách hỏi gửi từ đâu: Nhắc họ mọi hàng đều phải gửi về Kho Hub ở Buôn Ma Thuột.
 
-QUAN TRỌNG: Chỉ trả lời tiếng Việt, ngắn gọn 2-4 câu, tự nhiên.`;
+QUAN TRỌNG: 
+1. Chỉ trả lời tiếng Việt, ngắn gọn 2-4 câu, tự nhiên.
+2. KHI VÀ CHỈ KHI khách đã xác nhận chốt đơn (VD: "Đặt luôn", "Ok chốt", "Đồng ý đặt"), bạn BẮT BUỘC phải trả về thêm 1 khối JSON ở CUỐI CÙNG câu trả lời theo đúng định dạng sau (không giải thích gì thêm):
+<<<ORDER_DATA>>>
+{"is_ready": true, "customer_name": "Tên khách (nếu có, không thì để trống)", "customer_phone": "SĐT (nếu có)", "product_type": "Tên sản phẩm", "weight": 500, "delivery_address": "Địa chỉ khách muốn giao"}
+<<<END_ORDER_DATA>>>`;
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -72,9 +73,9 @@ export default async function handler(req, res) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'openai/gpt-oss-120b', // Model này rất thông minh
+        model: 'openai/gpt-oss-120b',
         messages,
-        temperature: 0.6, // Giảm độ sáng tạo để AI bám sát thông số
+        temperature: 0.6,
         max_tokens: 300,
       }),
     });

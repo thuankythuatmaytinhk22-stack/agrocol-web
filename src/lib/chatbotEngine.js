@@ -138,7 +138,29 @@ export async function answerChat(userText, prevSlots = {}, chatHistory = []) {
   };
 
   // 2. Gọi AI qua API Route (ưu tiên)
-  const aiText = await callAI(userText, merged, chatHistory);
+  let aiText = await callAI(userText, merged, chatHistory);
+  
+  // --- ĐOẠN CODE MỚI: BÓC TÁCH JSON TỪ AI ---
+  let aiQuote = null;
+  if (aiText && aiText.includes('<<<ORDER_DATA>>>')) {
+    const parts = aiText.split('<<<ORDER_DATA>>>');
+    aiText = parts[0].trim(); // Lấy phần text trả lời khách
+    
+    try {
+      const jsonStr = parts[1].split('<<<END_ORDER_DATA>>>')[0].trim();
+      const parsedData = JSON.parse(jsonStr);
+      if (parsedData.is_ready) {
+        // Cập nhật lại thông tin khách hàng từ AI (nếu AI bóc được tên/SĐT mà Regex bỏ sót)
+        merged.customer_name = parsedData.customer_name || merged.customer_name;
+        merged.customer_phone = parsedData.customer_phone || merged.customer_phone;
+        aiQuote = parsedData;
+      }
+    } catch (e) {
+      console.error("Lỗi parse JSON đặt hàng từ AI:", e);
+    }
+  }
+  // ------------------------------------------
+
   if (aiText) {
     const quote = quoteFromSlots(merged);
     return {
