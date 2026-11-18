@@ -19,7 +19,7 @@ function localExtract(text) {
   const weight = parseWeight(text);
   const phoneMatch = text.match(PHONE_RE);
   
-  // Sửa Regex bắt Tên: Chỉ bắt các từ viết hoa liên tiếp, dừng lại ở dấu phẩy hoặc số
+  // Regex bắt tên chặt chẽ
   const nameMatch = text.match(/(?:tên|tôi|mình)\s*(?:là|:)?\s*([A-ZÀ-Ỹ][a-zà-ỹ]*(?:\s+[A-ZÀ-Ỹ][a-zà-ỹ]*)*)/);
   const addressMatch = text.match(ADDRESS_RE) || text.match(/[0-9]+\s+[^,]+(?:đường|phố|quận|huyện|thành phố|phường|xã)/i);
   
@@ -113,7 +113,6 @@ export async function answerChat(userText, prevSlots = {}, chatHistory = []) {
     pickup_time: prevSlots.pickup_time || '',
   };
 
-  // Nếu khách nói "sửa tên thành ..." thì cập nhật lại
   const fixNameMatch = userText.match(/sửa tên thành\s*([A-ZÀ-Ỹ][a-zà-ỹ]*(?:\s+[A-ZÀ-Ỹ][a-zà-ỹ]*)*)/i);
   if (fixNameMatch) merged.customer_name = fixNameMatch[1].trim();
 
@@ -126,7 +125,6 @@ export async function answerChat(userText, prevSlots = {}, chatHistory = []) {
     try {
       const jsonStr = parts[1].split('<<<END_ORDER_DATA>>>')[0].trim();
       const parsedData = JSON.parse(jsonStr);
-      
       if (parsedData.is_ready) {
         if (parsedData.customer_name) merged.customer_name = parsedData.customer_name;
         if (parsedData.customer_phone) merged.customer_phone = parsedData.customer_phone;
@@ -136,12 +134,10 @@ export async function answerChat(userText, prevSlots = {}, chatHistory = []) {
         if (parsedData.send_date) merged.send_date = parsedData.send_date;
         if (parsedData.pickup_time) merged.pickup_time = parsedData.pickup_time;
       }
-    } catch (e) {
-      console.error("Lỗi parse JSON:", e);
-    }
+    } catch (e) {}
   }
 
-  // Tự động bắt ngày giờ bằng Regex nếu AI không làm
+  // Bắt ngày giờ nếu AI không làm
   if (!merged.pickup_time) {
     const timeMatch = userText.match(/(\d{1,2})[h:]\s*(\d{1,2})?/i);
     if (timeMatch) {
@@ -160,8 +156,11 @@ export async function answerChat(userText, prevSlots = {}, chatHistory = []) {
 
   const quote = quoteFromSlots(merged);
   
+  // NẾU ĐÃ ĐỦ THÔNG TIN -> Ép hiển thị nút ĐẶT NGAY và thông báo
   if (quote.complete && !aiText.includes('bản đồ')) {
-    aiText += "\n\nLưu ý: Vì địa chỉ cần tọa độ chính xác, bạn vui lòng chọn điểm giao trên bản đồ ở bước tiếp theo nhé!";
+    aiText = "Mình đã ghi nhận đủ thông tin. Vì cần tọa độ chính xác, bạn vui lòng chọn điểm giao trên bản đồ ở bước tiếp theo nhé!";
+  } else if (quote.complete) {
+    // Nếu AI đã trả lời đúng, không cần sửa text
   }
 
   return {

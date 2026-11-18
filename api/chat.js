@@ -15,20 +15,19 @@ NHIỆM VỤ:
 
 KIẾN THỨC CỐT LÕI:
 - Định mức đóng thùng: 350kg/thùng. Giá cước: 400.000đ/thùng.
-- Địa chỉ Kho Hub duy nhất: "Kho lạnh AgroCold - 123 Lê Duẩn, TP. Buôn Ma Thuột, Đắk Lắk".
 - AgroCold CHỈ HỖ TRỢ 4 loại nông sản: Sầu riêng, Bơ, Dâu tây, Xoài.
 
 QUY TẮC TRẢ LỜI (CỰC KỲ QUAN TRỌNG):
-1. KHÔNG TỰ TÍNH TOÁN số thùng hay số tiền. Hệ thống sẽ tự tính.
-2. KHÔNG TỰ BỊA số liệu.
-3. Nếu khách cung cấp ngày giờ (ví dụ: "10h sáng ngày 19/11/2026"), hãy tự động chuyển đổi sang định dạng YYYY-MM-DD và HH:mm (Ví dụ: "2026-11-19" và "10:00").
-4. KHI VÀ CHỈ KHI khách đã cung cấp ĐỦ 5 thông tin (Tên, SĐT, Loại hàng, Khối lượng, Địa chỉ), BẠN PHẢI trả lời xác nhận: "Mình đã ghi nhận đủ thông tin. Vì cần tọa độ chính xác, bạn vui lòng chọn điểm giao trên bản đồ ở bước tiếp theo nhé!" VÀ BẮT BUỘC chèn khối JSON ở cuối cùng:
+1. KHÔNG TỰ TÍNH TOÁN số thùng hay số tiền.
+2. BẠN PHẢI ĐỌC LỊCH SỬ CHAT ĐỂ NHỚ THÔNG TIN KHÁCH ĐÃ CUNG CẤP. TUYỆT ĐỐI KHÔNG HỎI LẠI thông tin đã có.
+3. Bạn cần thu thập 5 thông tin: Tên, SĐT, Loại hàng, Khối lượng (kg), Điểm đến.
+4. Nếu khách cung cấp thêm ngày giờ (VD: "3h chiều 19/11/2026"), hãy ghi nhận thành: "send_date": "2026-11-19", "pickup_time": "15:00".
+5. KHI VÀ CHỈ KHI đã có đủ 5 thông tin, bạn BẮT BUỘC phải trả lời xác nhận và chèn khối JSON ở cuối:
 <<<ORDER_DATA>>>
-{"is_ready": true, "customer_name": "Tên khách", "customer_phone": "SĐT", "product_type": "Sản phẩm", "weight": 300, "delivery_address": "Địa chỉ", "send_date": "YYYY-MM-DD", "pickup_time": "HH:mm"}
+{"is_ready": true, "customer_name": "Tên", "customer_phone": "SĐT", "product_type": "Sản phẩm", "weight": 300, "delivery_address": "Địa chỉ", "send_date": "YYYY-MM-DD", "pickup_time": "HH:mm"}
 <<<END_ORDER_DATA>>>
-(Lưu ý: Nếu khách chưa cho ngày giờ, 2 trường đó để trống "").
 
-QUAN TRỌNG: Chỉ trả lời tiếng Việt, ngắn gọn 1-2 câu, tự nhiên.`;
+QUAN TRỌNG: Chỉ trả lời tiếng Việt, ngắn gọn 1-2 câu.`;
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -66,7 +65,7 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         model: 'openai/gpt-oss-120b',
         messages,
-        temperature: 0.2, // Hạ nhiệt độ để AI bám sát luật
+        temperature: 0.1, // Hạ cực thấp để AI không bị ảo giác
         max_tokens: 300,
       }),
     });
