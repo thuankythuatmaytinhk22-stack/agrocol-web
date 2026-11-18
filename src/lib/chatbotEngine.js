@@ -6,6 +6,8 @@ const TON_RE = /(\d+(?:[.,]\d+)?)\s*(tấn|tan)/i;
 const FROM_TO_RE = /từ\s+(.+?)\s+(?:đi|đến|tới|ra|vào)\s+(.+?)(?:[.,!?]|$)/i;
 const CITY_RE = /(đắk lắk|dak lak|đà lạt|da lat|lâm đồng|hà nội|ha noi|tp\.?hcm|hồ chí minh|sài gòn|bình điền|đà nẵng|cần thơ|nghệ an|huế|hải phòng|quảng ninh|buôn ma thuột)/i;
 const PHONE_RE = /(0\d{9,10})/;
+// Bắt địa chỉ nếu có chữ "địa chỉ", "giao đến", "số nhà"
+const ADDRESS_RE = /(?:địa chỉ|giao đến|giao tại|số nhà)\s*(?:là|:)?\s*([^,\.]+)/i;
 
 function parseWeight(text) {
   const ton = text.match(TON_RE);
@@ -15,27 +17,18 @@ function parseWeight(text) {
   return null;
 }
 
-function parseRoute(text) {
-  const m = text.match(FROM_TO_RE);
-  if (m) return { pickup: m[1].trim(), delivery: m[2].trim().replace(/\s+cần.*$/i, '') };
-  const loose = text.match(new RegExp(`${CITY_RE.source}\\s*(?:đi|đến|tới)\\s*${CITY_RE.source}`, 'i'));
-  if (loose) return { pickup: loose[1], delivery: loose[2] };
-  return { pickup: '', delivery: '' };
-}
-
 function localExtract(text) {
   const product = matchProduct(text);
   const weight = parseWeight(text);
-  const { pickup, delivery } = parseRoute(text);
   const phoneMatch = text.match(PHONE_RE);
-  
   const nameMatch = text.match(/(?:tên|tôi|mình)\s*(?:là|:)?\s*([A-ZÀ-Ỹ][a-zà-ỹ]+(?:\s+[A-ZÀ-Ỹ][a-zà-ỹ]+)*)/i);
+  const addressMatch = text.match(ADDRESS_RE) || text.match(/[0-9]+\s+[^,]+(?:đường|phố|quận|huyện|thành phố)/i);
   
   return {
     product_type: product.key === 'default' && !/nông sản|hàng/i.test(text) ? '' : product.name,
     weight,
-    pickup_address: pickup,
-    delivery_address: delivery,
+    pickup_address: '',
+    delivery_address: addressMatch ? addressMatch[1].trim() : '',
     customer_phone: phoneMatch ? phoneMatch[1] : '',
     customer_name: nameMatch ? nameMatch[1].trim() : '',
   };
@@ -81,7 +74,6 @@ async function callAI(userText, prevSlots, chatHistory = []) {
     const data = await res.json();
     return data.text || null;
   } catch (e) {
-    console.error('Fetch error:', e);
     return null;
   }
 }
@@ -92,6 +84,7 @@ export function quoteFromSlots(slots) {
   const boxes = calcBoxes(weight);
   const cost = calcCost(boxes);
   
+  // Nếu đã có đủ Tên, SĐT, Cân nặng, Điểm đến -> Coi như complete = true
   const complete = Boolean(product && weight > 0 && slots.customer_name && slots.customer_phone && slots.delivery_address);
 
   return {
@@ -113,6 +106,7 @@ export function quoteFromSlots(slots) {
 export async function answerChat(userText, prevSlots = {}, chatHistory = []) {
   const local = localExtract(userText);
   
+  // Gộp dữ liệu: Nếu câu mới có thì lấy, không thì lấy từ bộ nhớ
   const merged = {
     product_type: local.product_type || prevSlots.product_type || '',
     weight: local.weight || prevSlots.weight || '',
@@ -123,6 +117,13 @@ export async function answerChat(userText, prevSlots = {}, chatHistory = []) {
     send_date: prevSlots.send_date || '',
     pickup_time: prevSlots.pickup_time || '',
   };
+
+  // Nếu chưa có địa chỉ, thử dùng Regex để bắt cả câu (ví dụ: "43 diên hồng")
+  if (!merged.delivery_address && userText.length > 5 && !userText.includes('?')) {
+    // Nếu câu chat có số nhà và chữ đường/phố/quận
+    const roughAddr = userText.match(/(\d+[^,]+(?:đường|phố|quận|huyện|thành phố|phường|xã))/i);
+    if (roughAddr) merged.delivery_address = roughAddr[0].trim();
+  }
 
   let aiText = await callAI(userText, merged, chatHistory);
   
@@ -147,8 +148,28 @@ export async function answerChat(userText, prevSlots = {}, chatHistory = []) {
     }
   }
 
+  // Tự động bắt ngày giờ bằng Regex nếu AI không làm
+  if (userText.match(/(\d{1,2})[h:]\s*(\d{1,2})?\s*(sáng|chiều|tối)?/i)) {
+    const timeMatch = userText.match(/(\d{1,2})[h:]\s*(\d{1,2})?/i);
+    if (timeMatch) {
+      let hour = parseInt(timeMatch[1]);
+      if (userText.toLowerCase().includes('chiều') && hour < 12) hour += 12;
+      merged.pickup_time = `${hour.toString().padStart(2, '0')}:00`;
+    }
+  }
+  
+  const dateMatch = userText.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (dateMatch) {
+    merged.send_date = `${dateMatch[3]}-${dateMatch[2].padStart(2, '0')}-${dateMatch[1].padStart(2, '0')}`;
+  }
+
   const quote = quoteFromSlots(merged);
   
+  // NẾU ĐÃ ĐỦ THÔNG TIN -> Ép hiển thị nút ĐẶT NGAY dù AI có nhả JSON hay không
+  if (quote.complete && !aiText.includes('ĐẶT NGAY')) {
+    aiText += "\n\nBạn có thể bấm nút bên dưới để chuyển sang trang đặt hàng nhé!";
+  }
+
   if (aiText) {
     return {
       slots: merged,
@@ -158,10 +179,11 @@ export async function answerChat(userText, prevSlots = {}, chatHistory = []) {
     };
   }
 
+  // Fallback nếu AI sập
   return { 
     slots: merged, 
     quote: quote.complete ? quote : null, 
-    text: "Dạ mình đã ghi nhận thông tin, bạn kiểm tra lại nhé!", 
+    text: quote.complete ? "Mình đã ghi nhận đủ thông tin, bạn bấm ĐẶT NGAY nhé!" : "Bạn vui lòng cung cấp thêm thông tin giúp mình.", 
     fromAI: false 
   };
 }
