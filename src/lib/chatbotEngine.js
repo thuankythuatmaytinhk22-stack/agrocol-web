@@ -19,7 +19,6 @@ function localExtract(text) {
   const weight = parseWeight(text);
   const phoneMatch = text.match(PHONE_RE);
   
-  // Regex bắt tên chặt chẽ
   const nameMatch = text.match(/(?:tên|tôi|mình)\s*(?:là|:)?\s*([A-ZÀ-Ỹ][a-zà-ỹ]*(?:\s+[A-ZÀ-Ỹ][a-zà-ỹ]*)*)/);
   const addressMatch = text.match(ADDRESS_RE) || text.match(/[0-9]+\s+[^,]+(?:đường|phố|quận|huyện|thành phố|phường|xã)/i);
   
@@ -81,7 +80,14 @@ export function quoteFromSlots(slots) {
   const boxes = calcBoxes(weight);
   const cost = calcCost(boxes);
   
-  const complete = Boolean(product && weight > 0 && slots.customer_name && slots.customer_phone && slots.delivery_address);
+  // Không cần delivery_address nữa, chỉ cần Tên, SĐT, Hàng, Cân, Ngày, Giờ
+  const complete = Boolean(
+    product && weight > 0 && 
+    slots.customer_name && 
+    slots.customer_phone && 
+    slots.send_date && 
+    slots.pickup_time
+  );
 
   return {
     complete,
@@ -130,16 +136,15 @@ export async function answerChat(userText, prevSlots = {}, chatHistory = []) {
         if (parsedData.customer_phone) merged.customer_phone = parsedData.customer_phone;
         if (parsedData.product_type) merged.product_type = parsedData.product_type;
         if (parsedData.weight) merged.weight = parsedData.weight;
-        if (parsedData.delivery_address) merged.delivery_address = parsedData.delivery_address;
         if (parsedData.send_date) merged.send_date = parsedData.send_date;
         if (parsedData.pickup_time) merged.pickup_time = parsedData.pickup_time;
       }
     } catch (e) {}
   }
 
-  // Bắt ngày giờ nếu AI không làm
+  // Regex bắt ngày giờ mạnh hơn cho: "3h ngày 19/11/2026"
   if (!merged.pickup_time) {
-    const timeMatch = userText.match(/(\d{1,2})[h:]\s*(\d{1,2})?/i);
+    const timeMatch = userText.match(/(\d{1,2})\s*(?:h|giờ|:)\s*(\d{1,2})?/i);
     if (timeMatch) {
       let hour = parseInt(timeMatch[1]);
       if (userText.toLowerCase().includes('chiều') && hour < 12) hour += 12;
@@ -156,11 +161,8 @@ export async function answerChat(userText, prevSlots = {}, chatHistory = []) {
 
   const quote = quoteFromSlots(merged);
   
-  // NẾU ĐÃ ĐỦ THÔNG TIN -> Ép hiển thị nút ĐẶT NGAY và thông báo
   if (quote.complete && !aiText.includes('bản đồ')) {
     aiText = "Mình đã ghi nhận đủ thông tin. Vì cần tọa độ chính xác, bạn vui lòng chọn điểm giao trên bản đồ ở bước tiếp theo nhé!";
-  } else if (quote.complete) {
-    // Nếu AI đã trả lời đúng, không cần sửa text
   }
 
   return {

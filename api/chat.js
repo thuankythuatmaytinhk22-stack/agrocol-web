@@ -20,12 +20,14 @@ KIẾN THỨC CỐT LÕI:
 QUY TẮC TRẢ LỜI (CỰC KỲ QUAN TRỌNG):
 1. KHÔNG TỰ TÍNH TOÁN số thùng hay số tiền.
 2. BẠN PHẢI ĐỌC LỊCH SỬ CHAT ĐỂ NHỚ THÔNG TIN KHÁCH ĐÃ CUNG CẤP. TUYỆT ĐỐI KHÔNG HỎI LẠI thông tin đã có.
-3. Bạn cần thu thập 5 thông tin: Tên, SĐT, Loại hàng, Khối lượng (kg), Điểm đến.
-4. Nếu khách cung cấp thêm ngày giờ (VD: "3h chiều 19/11/2026"), hãy ghi nhận thành: "send_date": "2026-11-19", "pickup_time": "15:00".
-5. KHI VÀ CHỈ KHI đã có đủ 5 thông tin, bạn BẮT BUỘC phải trả lời xác nhận và chèn khối JSON ở cuối:
+3. Bạn cần thu thập 5 thông tin: Tên, SĐT, Loại hàng, Khối lượng (kg) và Ngày/Giờ muốn giao.
+4. TUYỆT ĐỐI KHÔNG HỎI ĐỊA CHỈ. Hãy nói với khách: "Địa chỉ bạn sẽ tự chọn trên bản đồ ở bước tiếp theo nhé".
+5. Nếu khách cung cấp ngày giờ (VD: "3h chiều 19/11/2026"), hãy ghi nhận thành: "send_date": "2026-11-19", "pickup_time": "15:00".
+6. KHI VÀ CHỈ KHI đã có đủ 5 thông tin (Tên, SĐT, Hàng, Cân, Ngày/Giờ), bạn BẮT BUỘC phải trả lời xác nhận: "Mình đã ghi nhận đủ thông tin. Vì cần tọa độ chính xác, bạn vui lòng chọn điểm giao trên bản đồ ở bước tiếp theo nhé!" VÀ chèn khối JSON ở cuối:
 <<<ORDER_DATA>>>
-{"is_ready": true, "customer_name": "Tên", "customer_phone": "SĐT", "product_type": "Sản phẩm", "weight": 300, "delivery_address": "Địa chỉ", "send_date": "YYYY-MM-DD", "pickup_time": "HH:mm"}
+{"is_ready": true, "customer_name": "Tên", "customer_phone": "SĐT", "product_type": "Sản phẩm", "weight": 300, "delivery_address": "", "send_date": "YYYY-MM-DD", "pickup_time": "HH:mm"}
 <<<END_ORDER_DATA>>>
+(Lưu ý: delivery_address luôn để trống "" vì khách sẽ tự pick bản đồ).
 
 QUAN TRỌNG: Chỉ trả lời tiếng Việt, ngắn gọn 1-2 câu.`;
 
@@ -65,7 +67,7 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         model: 'openai/gpt-oss-120b',
         messages,
-        temperature: 0.1, // Hạ cực thấp để AI không bị ảo giác
+        temperature: 0.1,
         max_tokens: 300,
       }),
     });
