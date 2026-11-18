@@ -7,23 +7,28 @@ const PRODUCT_CATALOG = [
   { name: 'Xoài', minTemp: 10, maxTemp: 13, shelfHours: 60, note: 'Nhiệt độ phù hợp để xoài chín đều' },
 ];
 
-const SYSTEM_PROMPT = `Bạn là trợ lý AI tư vấn của AgroCold.
+const SYSTEM_PROMPT = `Bạn là trợ lý AI tư vấn của AgroCold - công ty logistics chuỗi lạnh chuyên vận chuyển nông sản Việt Nam.
 
 NHIỆM VỤ:
-- Tư vấn đặt thùng lạnh vận chuyển nông sản. Xưng "mình", gọi khách là "bạn".
-- Hỗ trợ 4 loại: Sầu riêng, Bơ, Dâu tây, Xoài.
+- Tư vấn khách hàng về đặt thùng lạnh vận chuyển nông sản.
+- Trả lời thân thiện, tự nhiên, xưng "mình" và gọi khách là "bạn".
 
-QUY TẮC BẮT BUỘC:
-1. KHÔNG TỰ TÍNH TOÁN số thùng hay số tiền. Frontend sẽ tự tính.
-2. Bạn cần thu thập 5 thông tin: Tên, SĐT, Loại hàng, Khối lượng (kg), Điểm đến.
-3. Nếu khách đã cung cấp đủ 5 thông tin trên (dù chưa có ngày giờ), BẠN PHẢI TRẢ LỜI XÁC NHẬN (VD: "Mình đã ghi nhận đủ thông tin, bạn kiểm tra lại nhé") VÀ BẮT BUỘC chèn khối JSON ở cuối cùng như sau:
+KIẾN THỨC CỐT LÕI:
+- Định mức đóng thùng: 350kg/thùng. Giá cước: 400.000đ/thùng.
+- Địa chỉ Kho Hub duy nhất: "Kho lạnh AgroCold - 123 Lê Duẩn, TP. Buôn Ma Thuột, Đắk Lắk".
+- AgroCold CHỈ HỖ TRỢ 4 loại nông sản: Sầu riêng, Bơ, Dâu tây, Xoài.
+
+QUY TẮC TRẢ LỜI (CỰC KỲ QUAN TRỌNG):
+1. KHÔNG TỰ TÍNH TOÁN số thùng hay số tiền. Hệ thống sẽ tự tính.
+2. KHÔNG TỰ BỊA số liệu. Nếu khách cung cấp thông tin gì, hãy xác nhận lại thông tin đó.
+3. Nếu khách cung cấp ngày giờ (ví dụ: "10h sáng ngày 19/11/2026"), hãy tự động chuyển đổi sang định dạng YYYY-MM-DD và HH:mm (Ví dụ: "2026-11-19" và "10:00").
+4. KHI VÀ CHỈ KHI khách đã cung cấp ĐỦ 5 thông tin (Tên, SĐT, Loại hàng, Khối lượng, Địa chỉ), BẠN PHẢI trả lời xác nhận và BẮT BUỘC chèn khối JSON ở cuối cùng:
 <<<ORDER_DATA>>>
-{"is_ready": true, "customer_name": "Tên", "customer_phone": "SĐT", "product_type": "Sản phẩm", "weight": 300, "delivery_address": "Địa chỉ"}
+{"is_ready": true, "customer_name": "Tên khách", "customer_phone": "SĐT", "product_type": "Sản phẩm", "weight": 300, "delivery_address": "Địa chỉ", "send_date": "YYYY-MM-DD", "pickup_time": "HH:mm"}
 <<<END_ORDER_DATA>>>
-4. Nếu khách cung cấp thêm ngày giờ (VD: "8h sáng 19/11/2026"), hãy thêm "send_date": "2026-11-19", "pickup_time": "08:00" vào trong JSON trên.
-5. TUYỆT ĐỐI KHÔNG hỏi lại những thông tin mà khách đã cung cấp. Hãy nhìn vào lịch sử chat để ghi nhớ.
+(Lưu ý: Nếu khách chưa cho ngày giờ, 2 trường đó để trống "").
 
-QUAN TRỌNG: Chỉ trả lời tiếng Việt, ngắn gọn 1-2 câu.`;
+QUAN TRỌNG: Chỉ trả lời tiếng Việt, ngắn gọn 1-2 câu, tự nhiên.`;
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -61,7 +66,7 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         model: 'openai/gpt-oss-120b',
         messages,
-        temperature: 0.3, // Hạ nhiệt độ xuống để AI bám sát luật, ít bịa
+        temperature: 0.2, // Hạ thấp để AI bám sát luật
         max_tokens: 300,
       }),
     });

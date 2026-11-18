@@ -3,11 +3,8 @@ import { supabase } from './supabaseClient';
 
 const KG_RE = /(\d+(?:[.,]\d+)?)\s*(kg|kí|ki|ký|kilogram)/i; 
 const TON_RE = /(\d+(?:[.,]\d+)?)\s*(tấn|tan)/i;
-const FROM_TO_RE = /từ\s+(.+?)\s+(?:đi|đến|tới|ra|vào)\s+(.+?)(?:[.,!?]|$)/i;
-const CITY_RE = /(đắk lắk|dak lak|đà lạt|da lat|lâm đồng|hà nội|ha noi|tp\.?hcm|hồ chí minh|sài gòn|bình điền|đà nẵng|cần thơ|nghệ an|huế|hải phòng|quảng ninh|buôn ma thuột)/i;
 const PHONE_RE = /(0\d{9,10})/;
-// Bắt địa chỉ nếu có chữ "địa chỉ", "giao đến", "số nhà"
-const ADDRESS_RE = /(?:địa chỉ|giao đến|giao tại|số nhà)\s*(?:là|:)?\s*([^,\.]+)/i;
+const ADDRESS_RE = /(?:địa chỉ|giao đến|giao tại|số nhà|giao là)\s*(?:là|:)?\s*([^,\.]+)/i;
 
 function parseWeight(text) {
   const ton = text.match(TON_RE);
@@ -22,7 +19,7 @@ function localExtract(text) {
   const weight = parseWeight(text);
   const phoneMatch = text.match(PHONE_RE);
   const nameMatch = text.match(/(?:tên|tôi|mình)\s*(?:là|:)?\s*([A-ZÀ-Ỹ][a-zà-ỹ]+(?:\s+[A-ZÀ-Ỹ][a-zà-ỹ]+)*)/i);
-  const addressMatch = text.match(ADDRESS_RE) || text.match(/[0-9]+\s+[^,]+(?:đường|phố|quận|huyện|thành phố)/i);
+  const addressMatch = text.match(ADDRESS_RE) || text.match(/[0-9]+\s+[^,]+(?:đường|phố|quận|huyện|thành phố|phường|xã)/i);
   
   return {
     product_type: product.key === 'default' && !/nông sản|hàng/i.test(text) ? '' : product.name,
@@ -84,7 +81,6 @@ export function quoteFromSlots(slots) {
   const boxes = calcBoxes(weight);
   const cost = calcCost(boxes);
   
-  // Nếu đã có đủ Tên, SĐT, Cân nặng, Điểm đến -> Coi như complete = true
   const complete = Boolean(product && weight > 0 && slots.customer_name && slots.customer_phone && slots.delivery_address);
 
   return {
@@ -106,7 +102,6 @@ export function quoteFromSlots(slots) {
 export async function answerChat(userText, prevSlots = {}, chatHistory = []) {
   const local = localExtract(userText);
   
-  // Gộp dữ liệu: Nếu câu mới có thì lấy, không thì lấy từ bộ nhớ
   const merged = {
     product_type: local.product_type || prevSlots.product_type || '',
     weight: local.weight || prevSlots.weight || '',
@@ -118,13 +113,6 @@ export async function answerChat(userText, prevSlots = {}, chatHistory = []) {
     pickup_time: prevSlots.pickup_time || '',
   };
 
-  // Nếu chưa có địa chỉ, thử dùng Regex để bắt cả câu (ví dụ: "43 diên hồng")
-  if (!merged.delivery_address && userText.length > 5 && !userText.includes('?')) {
-    // Nếu câu chat có số nhà và chữ đường/phố/quận
-    const roughAddr = userText.match(/(\d+[^,]+(?:đường|phố|quận|huyện|thành phố|phường|xã))/i);
-    if (roughAddr) merged.delivery_address = roughAddr[0].trim();
-  }
-
   let aiText = await callAI(userText, merged, chatHistory);
   
   if (aiText && aiText.includes('<<<ORDER_DATA>>>')) {
@@ -134,12 +122,15 @@ export async function answerChat(userText, prevSlots = {}, chatHistory = []) {
     try {
       const jsonStr = parts[1].split('<<<END_ORDER_DATA>>>')[0].trim();
       const parsedData = JSON.parse(jsonStr);
+      
       if (parsedData.is_ready) {
         if (parsedData.customer_name) merged.customer_name = parsedData.customer_name;
         if (parsedData.customer_phone) merged.customer_phone = parsedData.customer_phone;
         if (parsedData.product_type) merged.product_type = parsedData.product_type;
         if (parsedData.weight) merged.weight = parsedData.weight;
         if (parsedData.delivery_address) merged.delivery_address = parsedData.delivery_address;
+        
+        // Lấy ngày giờ từ AI trả về (nếu có)
         if (parsedData.send_date) merged.send_date = parsedData.send_date;
         if (parsedData.pickup_time) merged.pickup_time = parsedData.pickup_time;
       }
@@ -148,8 +139,8 @@ export async function answerChat(userText, prevSlots = {}, chatHistory = []) {
     }
   }
 
-  // Tự động bắt ngày giờ bằng Regex nếu AI không làm
-  if (userText.match(/(\d{1,2})[h:]\s*(\d{1,2})?\s*(sáng|chiều|tối)?/i)) {
+  // Nếu AI không trả về ngày giờ, tự động dùng Regex bắt lại từ câu của user
+  if (!merged.pickup_time) {
     const timeMatch = userText.match(/(\d{1,2})[h:]\s*(\d{1,2})?/i);
     if (timeMatch) {
       let hour = parseInt(timeMatch[1]);
@@ -158,32 +149,24 @@ export async function answerChat(userText, prevSlots = {}, chatHistory = []) {
     }
   }
   
-  const dateMatch = userText.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  if (dateMatch) {
-    merged.send_date = `${dateMatch[3]}-${dateMatch[2].padStart(2, '0')}-${dateMatch[1].padStart(2, '0')}`;
+  if (!merged.send_date) {
+    const dateMatch = userText.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (dateMatch) {
+      merged.send_date = `${dateMatch[3]}-${dateMatch[2].padStart(2, '0')}-${dateMatch[1].padStart(2, '0')}`;
+    }
   }
 
   const quote = quoteFromSlots(merged);
   
-  // NẾU ĐÃ ĐỦ THÔNG TIN -> Ép hiển thị nút ĐẶT NGAY dù AI có nhả JSON hay không
+  // Tự động thêm câu thông báo nếu đã đủ thông tin
   if (quote.complete && !aiText.includes('ĐẶT NGAY')) {
     aiText += "\n\nBạn có thể bấm nút bên dưới để chuyển sang trang đặt hàng nhé!";
   }
 
-  if (aiText) {
-    return {
-      slots: merged,
-      quote: quote.complete ? quote : null,
-      text: aiText,
-      fromAI: true,
-    };
-  }
-
-  // Fallback nếu AI sập
-  return { 
-    slots: merged, 
-    quote: quote.complete ? quote : null, 
-    text: quote.complete ? "Mình đã ghi nhận đủ thông tin, bạn bấm ĐẶT NGAY nhé!" : "Bạn vui lòng cung cấp thêm thông tin giúp mình.", 
-    fromAI: false 
+  return {
+    slots: merged,
+    quote: quote.complete ? quote : null,
+    text: aiText || "Dạ mình đã ghi nhận thông tin.",
+    fromAI: true,
   };
 }
