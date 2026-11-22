@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { createOrder, cancelOrder } from '../services/orderService';
-import { CheckCircle, MapPin, AlertCircle, Phone } from 'lucide-react';
+import { CheckCircle, MapPin, AlertCircle, Phone, CloudRain, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import LocationPicker from '../components/map/LocationPicker';
 
 const PRICE_PER_BOX = 400000; 
@@ -42,8 +42,13 @@ export default function BookingPage() {
   const [currentOrderData, setCurrentOrderData] = useState(null);
   const [currentDepositAmount, setCurrentDepositAmount] = useState(0);
 
+  // --- STATE CHO THỜI TIẾT ---
+  const [weatherData, setWeatherData] = useState(null);
+  const [weatherLoading, setWeatherLoading] = useState(false);
+
   const product = getProductInfo(formData.product_type);
 
+  // Tự động điền từ Chatbot
   useEffect(() => {
     const draft = sessionStorage.getItem('agrocold_booking_draft');
     if (draft) {
@@ -80,6 +85,38 @@ export default function BookingPage() {
     }
   }, []);
 
+  // --- GỌI API THỜI TIẾT KHI CÓ TỌA ĐỘ VÀ NGÀY ---
+  const fetchWeatherAdvice = async (lat, lng, date) => {
+    if (!lat || !lng || !date) {
+      setWeatherData(null);
+      return;
+    }
+    setWeatherLoading(true);
+    try {
+      const res = await fetch(`/api/weather?lat=${lat}&lng=${lng}&date=${date}`);
+      const data = await res.json();
+      if (res.ok) {
+        setWeatherData(data);
+      } else {
+        setWeatherData(null);
+      }
+    } catch (err) {
+      console.error('Lỗi fetch thời tiết', err);
+      setWeatherData(null);
+    } finally {
+      setWeatherLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (deliveryCoords.lat && formData.send_date) {
+      fetchWeatherAdvice(deliveryCoords.lat, deliveryCoords.lng, formData.send_date);
+    } else {
+      setWeatherData(null);
+    }
+  }, [deliveryCoords.lat, deliveryCoords.lng, formData.send_date]);
+
+  // --- CÁC HÀM XỬ LÝ CŨ ---
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
@@ -217,6 +254,27 @@ export default function BookingPage() {
                     if (coords.address) setFormData((prev) => ({ ...prev, delivery_address: coords.address }));
                   }} />
               </div>
+
+              {/* HIỂN THỊ KHUYẾN CÁO THỜI TIẾT */}
+              {weatherData && (
+                <div className={`p-4 rounded-xl border flex items-start gap-3 mt-4 ${
+                  weatherData.status === 'danger' ? 'bg-red-50 border-red-200 text-red-800' :
+                  weatherData.status === 'warning' ? 'bg-yellow-50 border-yellow-200 text-yellow-800' :
+                  'bg-green-50 border-green-200 text-green-800'
+                }`}>
+                  {weatherData.status === 'danger' && <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />}
+                  {weatherData.status === 'warning' && <CloudRain className="w-5 h-5 flex-shrink-0 mt-0.5" />}
+                  {weatherData.status === 'good' && <CheckCircle2 className="w-5 h-5 flex-shrink-0 mt-0.5" />}
+                  
+                  <div>
+                    <p className="font-bold text-sm mb-1">Khuyến cáo thời tiết ngày giao hàng</p>
+                    <p className="text-sm">{weatherData.advice}</p>
+                    <p className="text-xs opacity-70 mt-1">
+                      Nhiệt độ: {weatherData.minTemp}°C - {weatherData.maxTemp}°C | Khả năng mưa: {weatherData.rainProb}%
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {errorMsg && (
                 <div className="bg-red-50 text-red-600 p-4 rounded-xl flex items-center gap-2 font-medium">
