@@ -42,9 +42,7 @@ export default function BookingPage() {
   const [currentOrderData, setCurrentOrderData] = useState(null);
   const [currentDepositAmount, setCurrentDepositAmount] = useState(0);
 
-  // --- STATE CHO THỜI TIẾT ---
   const [weatherData, setWeatherData] = useState(null);
-  const [weatherLoading, setWeatherLoading] = useState(false);
 
   const product = getProductInfo(formData.product_type);
 
@@ -85,38 +83,31 @@ export default function BookingPage() {
     }
   }, []);
 
-  // --- GỌI API THỜI TIẾT KHI CÓ TỌA ĐỘ VÀ NGÀY ---
-  const fetchWeatherAdvice = async (lat, lng, date) => {
-    if (!lat || !lng || !date) {
+  // --- TỰ ĐỘNG LẤY THỜI TIẾT KHI CÓ NGÀY GỬI ---
+  useEffect(() => {
+    if (!formData.send_date) {
       setWeatherData(null);
       return;
     }
-    setWeatherLoading(true);
-    try {
-      const res = await fetch(`/api/weather?lat=${lat}&lng=${lng}&date=${date}`);
-      const data = await res.json();
-      if (res.ok) {
-        setWeatherData(data);
-      } else {
+
+    const fetchWeather = async () => {
+      try {
+        const res = await fetch(`/api/weather?date=${formData.send_date}`);
+        const data = await res.json();
+        if (res.ok) {
+          setWeatherData(data);
+        } else {
+          setWeatherData(null);
+        }
+      } catch (err) {
+        console.error('Lỗi fetch thời tiết', err);
         setWeatherData(null);
       }
-    } catch (err) {
-      console.error('Lỗi fetch thời tiết', err);
-      setWeatherData(null);
-    } finally {
-      setWeatherLoading(false);
-    }
-  };
+    };
 
-  useEffect(() => {
-    if (deliveryCoords.lat && formData.send_date) {
-      fetchWeatherAdvice(deliveryCoords.lat, deliveryCoords.lng, formData.send_date);
-    } else {
-      setWeatherData(null);
-    }
-  }, [deliveryCoords.lat, deliveryCoords.lng, formData.send_date]);
+    fetchWeather();
+  }, [formData.send_date]);
 
-  // --- CÁC HÀM XỬ LÝ CŨ ---
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
@@ -255,7 +246,7 @@ export default function BookingPage() {
                   }} />
               </div>
 
-              {/* HIỂN THỊ KHUYẾN CÁO THỜI TIẾT */}
+              {/* HIỂN THỊ KHUYẾN CÁO THỜI TIẾT TẠI KHO HUB */}
               {weatherData && (
                 <div className={`p-4 rounded-xl border flex items-start gap-3 mt-4 ${
                   weatherData.status === 'danger' ? 'bg-red-50 border-red-200 text-red-800' :
@@ -267,7 +258,7 @@ export default function BookingPage() {
                   {weatherData.status === 'good' && <CheckCircle2 className="w-5 h-5 flex-shrink-0 mt-0.5" />}
                   
                   <div>
-                    <p className="font-bold text-sm mb-1">Khuyến cáo thời tiết ngày giao hàng</p>
+                    <p className="font-bold text-sm mb-1">Khuyến cáo thời tiết tại Kho Hub (Buôn Ma Thuột)</p>
                     <p className="text-sm">{weatherData.advice}</p>
                     <p className="text-xs opacity-70 mt-1">
                       Nhiệt độ: {weatherData.minTemp}°C - {weatherData.maxTemp}°C | Khả năng mưa: {weatherData.rainProb}%
