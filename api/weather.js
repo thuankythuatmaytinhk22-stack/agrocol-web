@@ -14,43 +14,73 @@ export default async function handler(req, res) {
   const hubLng = 108.0382;
 
   try {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${hubLat}&longitude=${hubLng}&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode&timezone=Asia%2FBangkok&start_date=${date}&end_date=${date}`;
+    // Gọi API lấy thời tiết theo GIỜ để tính toán chính xác hơn
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${hubLat}&longitude=${hubLng}&hourly=temperature_2m,precipitation_probability&timezone=Asia%2FBangkok&start_date=${date}&end_date=${date}`;
     
     const response = await fetch(url);
     const data = await response.json();
 
-    if (!data.daily || !data.daily.time || data.daily.time.length === 0) {
+    if (!data.hourly || !data.hourly.time || data.hourly.time.length === 0) {
       return res.status(404).json({ error: 'Không có dữ liệu thời tiết cho ngày này' });
     }
 
-    const maxTemp = data.daily.temperature_2m_max[0];
-    const minTemp = data.daily.temperature_2m_min[0];
-    const rainProb = data.daily.precipitation_probability_max[0];
-    
+    const times = data.hourly.time;
+    const temps = data.hourly.temperature_2m;
+    const rains = data.hourly.precipitation_probability;
+
+    // Phân tích 3 khung giờ chính trong ngày
+    let morningScore = 0, noonScore = 0, eveningScore = 0; // Điểm càng thấp càng tốt
+    let morningRain = 0, noonRain = 0, eveningRain = 0;
+
+    for (let i = 0; i < times.length; i++) {
+      const hour = new Date(times[i]).getHours();
+      
+      // Khung 1: Sáng sớm (5h - 9h)
+      if (hour >= 5 && hour <= 9) {
+        morningScore += temps[i];
+        morningRain += rains[i];
+      }
+      // Khung 2: Giữa trưa (10h - 15h) - Thường nắng nóng nhất
+      if (hour >= 10 && hour <= 15) {
+        noonScore += temps[i];
+        noonRain += rains[i];
+      }
+      // Khung 3: Chiều muộn (16h - 19h)
+      if (hour >= 16 && hour <= 19) {
+        eveningScore += temps[i];
+        eveningRain += rains[i];
+      }
+    }
+
+    // Đưa ra khuyến cáo dựa trên điểm số
     let advice = '';
     let status = 'good';
+    let suggestedTime = '';
 
-    // Đưa ra khuyến cáo dựa trên thời tiết tại Buôn Ma Thuột
-    if (rainProb > 60) {
-      advice = 'Tại Buôn Ma Thuột, khả năng mưa cao. Nên cho xe xuất phát vào sáng sớm hoặc khi tạnh mưa để tránh nước vào thùng.';
+    if (morningRain > 150) { // Khả năng mưa cao
+      advice = 'Buổi sáng có thể có mưa. Hãy cân nhắc dời giờ giao hàng.';
       status = 'warning';
-    } else if (maxTemp > 35) {
-      advice = 'Tại Buôn Ma Thuột, trời nắng gắt. Nên tránh xuất phát vào giữa trưa (11h-15h). Tốt nhất là cho xe đi vào sáng sớm hoặc chiều muộn.';
+    } else if (noonScore > 100) { // Tổng nhiệt độ giữa trưa quá cao (trung bình > 33 độ)
+      advice = 'Giữa trưa trời rất nắng nóng, không tốt cho nông sản. Bạn nên giao vào sáng sớm hoặc chiều muộn.';
       status = 'danger';
-    } else if (maxTemp > 32) {
-      advice = 'Tại Buôn Ma Thuột, trời khá nóng. Nên ưu tiên cho xe xuất phát vào buổi sáng sớm.';
-      status = 'warning';
     } else {
-      advice = 'Thời tiết tại Buôn Ma Thuột khá thuận lợi. Bạn có thể cho xe xuất phát vào bất kỳ thời gian nào trong ngày.';
+      advice = 'Thời tiết khá thuận lợi. Để đảm bảo độ tươi ngon, bạn nên giao vào sáng sớm hoặc chiều muộn khi trời mát mẻ.';
       status = 'good';
     }
 
+    // Đề xuất giờ cụ thể
+    if (morningRain < 30) {
+      suggestedTime = '06:00 - 09:00';
+    } else if (eveningRain < 30) {
+      suggestedTime = '16:00 - 19:00';
+    } else {
+      suggestedTime = 'Bất kỳ lúc nào (hạn chế giữa trưa)';
+    }
+
     return res.status(200).json({
-      maxTemp,
-      minTemp,
-      rainProb,
       advice,
-      status
+      status,
+      suggestedTime
     });
 
   } catch (error) {

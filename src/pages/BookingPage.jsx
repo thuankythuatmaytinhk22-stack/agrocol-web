@@ -226,6 +226,31 @@ export default function BookingPage() {
                 </div>
               </div>
 
+              {/* KHUYẾN CÁO THỜI TIẾT TẠI KHO HUB */}
+              {weatherData && (
+                <div className={`p-4 rounded-xl border flex items-start gap-3 ${
+                  weatherData.status === 'danger' ? 'bg-red-50 border-red-200 text-red-800' :
+                  weatherData.status === 'warning' ? 'bg-yellow-50 border-yellow-200 text-yellow-800' :
+                  'bg-green-50 border-green-200 text-green-800'
+                }`}>
+                  {weatherData.status === 'danger' && <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />}
+                  {weatherData.status === 'warning' && <CloudRain className="w-5 h-5 flex-shrink-0 mt-0.5" />}
+                  {weatherData.status === 'good' && <CheckCircle2 className="w-5 h-5 flex-shrink-0 mt-0.5" />}
+                  
+                  <div>
+                    <p className="font-bold text-sm mb-1">Khuyến cáo thời tiết tại Kho Hub (Buôn Ma Thuột)</p>
+                    <p className="text-sm">{weatherData.advice}</p>
+                    
+                    {weatherData.suggestedTime && (
+                      <div className="mt-2 bg-white/50 px-3 py-2 rounded-lg inline-block border border-current/20">
+                        <span className="text-xs font-semibold opacity-80">💡 Giờ vàng đề xuất:</span>
+                        <span className="font-bold text-sm ml-2">{weatherData.suggestedTime}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <div className="border-t border-gray-100 pt-6">
                 <label className="block text-sm font-semibold mb-2 text-agro-dark flex items-center gap-2">
                   <MapPin className="w-4 h-4 text-red-500" /> Điểm lấy hàng (Kho Hub)
@@ -245,27 +270,6 @@ export default function BookingPage() {
                     if (coords.address) setFormData((prev) => ({ ...prev, delivery_address: coords.address }));
                   }} />
               </div>
-
-              {/* HIỂN THỊ KHUYẾN CÁO THỜI TIẾT TẠI KHO HUB */}
-              {weatherData && (
-                <div className={`p-4 rounded-xl border flex items-start gap-3 mt-4 ${
-                  weatherData.status === 'danger' ? 'bg-red-50 border-red-200 text-red-800' :
-                  weatherData.status === 'warning' ? 'bg-yellow-50 border-yellow-200 text-yellow-800' :
-                  'bg-green-50 border-green-200 text-green-800'
-                }`}>
-                  {weatherData.status === 'danger' && <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />}
-                  {weatherData.status === 'warning' && <CloudRain className="w-5 h-5 flex-shrink-0 mt-0.5" />}
-                  {weatherData.status === 'good' && <CheckCircle2 className="w-5 h-5 flex-shrink-0 mt-0.5" />}
-                  
-                  <div>
-                    <p className="font-bold text-sm mb-1">Khuyến cáo thời tiết tại Kho Hub (Buôn Ma Thuột)</p>
-                    <p className="text-sm">{weatherData.advice}</p>
-                    <p className="text-xs opacity-70 mt-1">
-                      Nhiệt độ: {weatherData.minTemp}°C - {weatherData.maxTemp}°C | Khả năng mưa: {weatherData.rainProb}%
-                    </p>
-                  </div>
-                </div>
-              )}
 
               {errorMsg && (
                 <div className="bg-red-50 text-red-600 p-4 rounded-xl flex items-center gap-2 font-medium">
