@@ -3,8 +3,8 @@ import { createOrder, cancelOrder } from '../services/orderService';
 import { CheckCircle, MapPin, AlertCircle, Phone, CloudRain, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import LocationPicker from '../components/map/LocationPicker';
 
-const PRICE_PER_BOX = 400000; 
-const WEIGHT_PER_BOX = 350;   
+const PRICE_PER_BOX = 500000; 
+const WEIGHT_PER_BOX = 400;   
 const HUB_ADDRESS = 'Kho lạnh AgroCold - 123 Lê Duẩn, TP. Buôn Ma Thuột, Đắk Lắk';
 const HUB_COORDS = { lat: 12.6662, lng: 108.0382 };
 

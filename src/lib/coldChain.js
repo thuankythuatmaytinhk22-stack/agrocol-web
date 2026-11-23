@@ -1,5 +1,5 @@
-export const KG_PER_BOX = 250;
-export const COST_PER_BOX = 250000;
+export const KG_PER_BOX = 400;
+export const COST_PER_BOX = 500000;
 
 export const PRODUCT_CATALOG = [
   {
